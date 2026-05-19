@@ -79,7 +79,9 @@ export function isValidFontSize(raw: string): boolean {
  */
 const FontSize = FontSizeBase.extend({
   addCommands() {
-    const parentCommands = this.parent?.() ?? {};
+    // Tiptap v3 的类型定义里 `this` 不再暴露 `parent`，但运行时仍存在；
+    // 这里用 any 断言获取父扩展的命令，保持与 v2 行为一致。
+    const parentCommands = (this as any).parent?.() ?? {};
     return {
       ...parentCommands,
       setFontSize:
