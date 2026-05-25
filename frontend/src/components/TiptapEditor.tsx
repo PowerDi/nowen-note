@@ -1435,6 +1435,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
               return false;
             }
             event.preventDefault();
+            // 打开右侧文件详情抽屉时，同步关闭 hover/caret 触发的链接气泡，
+            // 避免气泡（路径预览 + 下载/链接/取消链接）与抽屉同屏并存造成视觉干扰。
+            setLinkBubble(b => (b.open ? { ...b, open: false } : b));
             setAttachmentPreview({
               id: attachmentId,
               filename: fname,
@@ -3660,7 +3663,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       )}
 
       {/* 链接气泡菜单：光标停在链接内（无选区）或鼠标 hover 链接时浮出 — 打开 / 编辑 / 取消链接 */}
-      {editor && editable && linkBubble.open && (
+      {/* 抽屉打开期间不渲染链接气泡：双保险，防 hover/caret 在抽屉打开后又把它弹回来。 */}
+      {editor && editable && linkBubble.open && !attachmentPreview && (
         <div
           className="fixed z-50 flex items-center gap-1 bg-app-elevated border border-app-border rounded-lg shadow-lg px-2 py-1 max-w-[320px]"
           style={{ top: linkBubble.top, left: linkBubble.left }}
