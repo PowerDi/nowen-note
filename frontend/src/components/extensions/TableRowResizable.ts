@@ -26,7 +26,7 @@ import { TableRow } from "@tiptap/extension-table";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
-const ROW_RESIZE_HANDLE_HEIGHT = 5; // 拖拽热区高度（px）
+const ROW_RESIZE_HANDLE_HEIGHT = 6; // 拖拽热区高度（px），稍微放宽一点，更好命中
 const MIN_ROW_HEIGHT = 24; // 最小行高，防止拖到看不见
 
 /**
@@ -74,14 +74,21 @@ export const TableRowWithHeight = TableRow.extend({
 function rowResizePlugin(): Plugin {
   // 把可视手柄做成单例 DOM，hover 时 absolute 定位到对应行底边
   let handleEl: HTMLDivElement | null = null;
+  // 拖拽中"跟随鼠标"的蓝色参考线（fixed 定位，永远跟手）
+  let guideEl: HTMLDivElement | null = null;
   // 拖拽中的状态
   let dragging: {
     rowEl: HTMLTableRowElement;
     rowPos: number; // <tr> 在 doc 中的位置
     startY: number;
     startHeight: number;
+    rowTopAtStart: number; // 拖拽开始时该行 top（视口坐标），用来算参考线 Y
+    cells: HTMLTableCellElement[]; // 缓存该行所有 td/th，拖拽中直接改它们的 height
     view: EditorView;
   } | null = null;
+  // hover 检测节流：避免 mousemove 高频触发抖动
+  let pendingHover: { x: number; y: number } | null = null;
+  let rafId: number | null = null;
 
   function ensureHandle(view: EditorView): HTMLDivElement {
     if (handleEl) return handleEl;
@@ -101,8 +108,30 @@ function rowResizePlugin(): Plugin {
     return el;
   }
 
+  function ensureGuide(): HTMLDivElement {
+    if (guideEl) return guideEl;
+    const el = document.createElement("div");
+    el.className = "tiptap-row-resize-guide";
+    el.style.position = "fixed";
+    el.style.left = "0";
+    el.style.right = "0";
+    el.style.height = "2px";
+    el.style.zIndex = "9999";
+    el.style.pointerEvents = "none";
+    el.style.background = "rgb(59, 130, 246)"; // tailwind blue-500
+    el.style.boxShadow = "0 0 0 1px rgba(59, 130, 246, 0.35)";
+    el.style.display = "none";
+    document.body.appendChild(el);
+    guideEl = el;
+    return el;
+  }
+
   function hideHandle() {
     if (handleEl) handleEl.style.display = "none";
+  }
+
+  function hideGuide() {
+    if (guideEl) guideEl.style.display = "none";
   }
 
   function findRowAtY(target: HTMLElement, clientX: number, clientY: number): HTMLTableRowElement | null {
@@ -135,28 +164,25 @@ function rowResizePlugin(): Plugin {
   return new Plugin({
     key: new PluginKey("tableRowResize"),
     view: (view) => {
-      const onMouseMove = (e: MouseEvent) => {
-        // 拖拽中：实时改 DOM 高度，等到 mouseup 再写 doc
-        if (dragging) {
-          const dy = e.clientY - dragging.startY;
-          const next = Math.max(MIN_ROW_HEIGHT, dragging.startHeight + dy);
-          dragging.rowEl.style.height = `${next}px`;
-          return;
-        }
-        // 非拖拽：检测是否 hover 在某行底边
+      // hover 检测放进 rAF，节流，避免快速移动时手柄位置抖动
+      const flushHover = () => {
+        rafId = null;
+        if (!pendingHover || dragging) return;
+        const { x, y } = pendingHover;
+        pendingHover = null;
         const target = view.dom as HTMLElement;
-        const rowEl = findRowAtY(target, e.clientX, e.clientY);
+        const rowEl = findRowAtY(target, x, y);
         if (!rowEl) {
           hideHandle();
           return;
         }
         const rect = rowEl.getBoundingClientRect();
-        const distFromBottom = rect.bottom - e.clientY;
-        if (distFromBottom < 0 || distFromBottom > ROW_RESIZE_HANDLE_HEIGHT + 2) {
+        const distFromBottom = rect.bottom - y;
+        // 命中带：底边上下各 ROW_RESIZE_HANDLE_HEIGHT 像素
+        if (distFromBottom < -2 || distFromBottom > ROW_RESIZE_HANDLE_HEIGHT + 4) {
           hideHandle();
           return;
         }
-        // 命中 → 显示手柄
         const handle = ensureHandle(view);
         const parent = handle.parentElement!;
         const parentRect = parent.getBoundingClientRect();
@@ -164,16 +190,39 @@ function rowResizePlugin(): Plugin {
         handle.style.top = `${rect.bottom - parentRect.top - ROW_RESIZE_HANDLE_HEIGHT / 2}px`;
         handle.style.left = `${rect.left - parentRect.left}px`;
         handle.style.width = `${rect.width}px`;
-        // 记录待拖拽的行（mousedown 时可能 elementFromPoint 不准）
-        handle.dataset.rowTop = String(rect.top);
-        handle.dataset.rowHeight = String(rect.height);
-        // 用闭包变量缓存
-        (handle as any)._rowEl = rowEl;
+        (handle as unknown as { _rowEl: HTMLTableRowElement })._rowEl = rowEl;
+      };
+
+      const onMouseMove = (e: MouseEvent) => {
+        // 拖拽中：把高度同步给该行所有 td/th（td.height 在 table 布局里立即生效），
+        // 同时移动跟随鼠标的蓝色参考线 → 视觉上 100% 跟手
+        if (dragging) {
+          const dy = e.clientY - dragging.startY;
+          const next = Math.max(MIN_ROW_HEIGHT, dragging.startHeight + dy);
+          // 给 tr 也加一份（部分浏览器 tr.height 也生效）
+          dragging.rowEl.style.height = `${next}px`;
+          // 真正驱动行高的：所有 cell 的 inline height
+          for (const cell of dragging.cells) {
+            cell.style.height = `${next}px`;
+          }
+          // 参考线跟随鼠标 Y（夹到行 top + MIN_ROW_HEIGHT 之下不可以）
+          const minBottomY = dragging.rowTopAtStart + MIN_ROW_HEIGHT;
+          const guideY = Math.max(minBottomY, e.clientY);
+          const g = ensureGuide();
+          g.style.display = "block";
+          g.style.top = `${guideY - 1}px`;
+          return;
+        }
+        // 非拖拽：节流到 rAF，避免抖动
+        pendingHover = { x: e.clientX, y: e.clientY };
+        if (rafId == null) {
+          rafId = requestAnimationFrame(flushHover);
+        }
       };
 
       const onMouseDown = (e: MouseEvent) => {
         if (!handleEl || handleEl.style.display === "none") return;
-        const rowEl = (handleEl as any)._rowEl as HTMLTableRowElement | undefined;
+        const rowEl = (handleEl as unknown as { _rowEl?: HTMLTableRowElement })._rowEl;
         if (!rowEl) return;
         // 仅当鼠标在手柄区域内才开始拖拽
         const handleRect = handleEl.getBoundingClientRect();
@@ -189,16 +238,26 @@ function rowResizePlugin(): Plugin {
         e.stopPropagation();
         const pos = getRowDocPos(view, rowEl);
         if (pos == null) return;
+        const rect = rowEl.getBoundingClientRect();
+        // 缓存该行所有 cell（td & th），拖拽中直接改它们 inline height
+        const cells = Array.from(rowEl.querySelectorAll("td, th")) as HTMLTableCellElement[];
         dragging = {
           rowEl,
           rowPos: pos,
           startY: e.clientY,
-          startHeight: rowEl.getBoundingClientRect().height,
+          startHeight: rect.height,
+          rowTopAtStart: rect.top,
+          cells,
           view,
         };
         document.body.style.cursor = "row-resize";
-        // 拖拽时禁用文本选择，避免误选
         document.body.style.userSelect = "none";
+        // 拖拽开始就显示参考线在当前底边
+        const g = ensureGuide();
+        g.style.display = "block";
+        g.style.top = `${rect.bottom - 1}px`;
+        // 拖拽中隐藏 hover 手柄，避免视觉重叠
+        hideHandle();
       };
 
       const onMouseUp = (e: MouseEvent) => {
@@ -217,10 +276,13 @@ function rowResizePlugin(): Plugin {
         }
         // 清掉行内 inline style，让 schema 渲染接管
         dragging.rowEl.style.height = "";
+        for (const cell of dragging.cells) {
+          cell.style.height = "";
+        }
         dragging = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
-        hideHandle();
+        hideGuide();
       };
 
       window.addEventListener("mousemove", onMouseMove);
@@ -232,10 +294,15 @@ function rowResizePlugin(): Plugin {
           window.removeEventListener("mousemove", onMouseMove);
           window.removeEventListener("mousedown", onMouseDown, true);
           window.removeEventListener("mouseup", onMouseUp, true);
+          if (rafId != null) cancelAnimationFrame(rafId);
           if (handleEl && handleEl.parentElement) {
             handleEl.parentElement.removeChild(handleEl);
           }
+          if (guideEl && guideEl.parentElement) {
+            guideEl.parentElement.removeChild(guideEl);
+          }
           handleEl = null;
+          guideEl = null;
           dragging = null;
         },
       };

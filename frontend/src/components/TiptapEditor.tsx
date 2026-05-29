@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from "framer-motion";import StarterKit from "
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import ResizableImageView from "./ResizableImageView";
+import { TableGridPicker, TableResizeDialog } from "./TableGridPicker";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
@@ -37,10 +38,12 @@ import {
   List, ListOrdered, Heading1, Heading2, Heading3,
   Quote, ImagePlus, Film, Paperclip, CheckSquare, Highlighter, Minus, Undo, Redo,
   Code, FileCode, Sparkles, X, ZoomIn, ZoomOut, RotateCcw,
-  Table2, Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
+  Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download,
   Type, Palette, Eraser, ChevronDown, Search,
+  // 表格气泡菜单图标
+  Rows3, Columns3, Merge, Split, Heading,
 } from "lucide-react";
 import { downloadAttachment } from "@/lib/downloadFile";
 import { cn } from "@/lib/utils";
@@ -1182,6 +1185,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   // 图片选中时的快捷尺寸气泡
   const [imageBubble, setImageBubble] = useState<{ open: boolean; top: number; left: number }>({
     open: false, top: 0, left: 0,
+  });
+  // 光标在表格内时的表格操作气泡（合并/拆分/增删行列等）
+  // 与文本/图片气泡互斥：选中图片或选中非空文本时不显示表格气泡
+  const [tableBubble, setTableBubble] = useState<{ open: boolean; top: number; left: number }>({
+    open: false, top: 0, left: 0,
+  });
+  // 调整表格尺寸对话框：按行列差值调用 addRow/deleteRow + addColumn/deleteColumn
+  // initialRows/Cols 是打开对话框时的当前表格尺寸
+  const [resizeDialog, setResizeDialog] = useState<{ open: boolean; rows: number; cols: number }>({
+    open: false, rows: 3, cols: 3,
   });
   // 光标停在链接内（且无选区）时浮出的链接气泡：打开 / 编辑 / 取消链接
   // 与 bubble（文本选区格式化）互斥——选区有内容时优先显示文本气泡。
@@ -2504,6 +2517,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         setBubble(b => b.open ? { ...b, open: false } : b);
         setImageBubble(b => b.open ? { ...b, open: false } : b);
         setLinkBubble(b => b.open ? { ...b, open: false } : b);
+        setTableBubble(b => b.open ? { ...b, open: false } : b);
         return;
       }
 
@@ -2511,6 +2525,29 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       if (empty) {
         setBubble(b => b.open ? { ...b, open: false } : b);
         setImageBubble(b => b.open ? { ...b, open: false } : b);
+
+        // 光标在表格里 → 显示表格操作气泡（独立于 link 气泡，因为表格里基本不会有 link）
+        if (editor.isActive("table")) {
+          // 用当前光标位置所在 <td>/<th> 的 DOM 作为锚定矩形
+          let cellEl: HTMLElement | null = null;
+          try {
+            const dom = view.domAtPos(from).node as Node | null;
+            const el = dom instanceof Element ? dom : dom?.parentElement ?? null;
+            cellEl = el?.closest?.("td, th") as HTMLElement | null;
+          } catch { /* ignore */ }
+          if (cellEl) {
+            const cellRect = cellEl.getBoundingClientRect();
+            // 表格气泡较宽，估 360；放上方，放不下时降到下方（placeBubble 已处理）
+            const { top } = placeBubble(cellRect, 40, 360);
+            const cx = cellRect.left + cellRect.width / 2;
+            const left = Math.max(8, Math.min(cx - 180, window.innerWidth - 370));
+            setTableBubble({ open: true, top, left });
+          } else {
+            setTableBubble(b => b.open ? { ...b, open: false } : b);
+          }
+        } else {
+          setTableBubble(b => b.open ? { ...b, open: false } : b);
+        }
 
         if (editor.isActive("link")) {
           // 取整段 link mark 的范围用于定位（光标位置矩形是零宽，定位会偏）
@@ -2565,6 +2602,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
       // 有选区 → 关闭 caret 链接气泡（hover 的不动），走原有文本/图片气泡逻辑
       setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
+      // 有选区时也关掉表格气泡（避免与文本格式化气泡叠加）
+      setTableBubble(b => b.open ? { ...b, open: false } : b);
 
       const isImage = editor.isActive("image");
 
@@ -2597,6 +2636,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           setImageBubble(b => b.open ? { ...b, open: false } : b);
           // 只关 caret 触发的链接气泡；hover 气泡不依赖编辑器 focus
           setLinkBubble(b => (b.open && b.source === "caret") ? { ...b, open: false } : b);
+          setTableBubble(b => b.open ? { ...b, open: false } : b);
         }
       });
     };
@@ -3365,12 +3405,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         <ToolbarButton onClick={handleAttachmentUpload} title={t('tiptap.insertAttachment')}>
           <Paperclip size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
-          title={t('tiptap.insertTable')}
-        >
-          <Table2 size={iconSize} />
-        </ToolbarButton>
+        <TableGridPicker
+          iconSize={iconSize}
+          onPick={(rows, cols) =>
+            editor
+              .chain()
+              .focus()
+              .insertTable({ rows, cols, withHeaderRow: true })
+              .run()
+          }
+        />
         {/* Mermaid 图表：插入空的 mermaid 代码块（lang=mermaid 由 CodeBlockView 渲染图形） */}
         <ToolbarButton
           onClick={() => {
@@ -3806,6 +3850,134 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           </ToolbarButton>
         </div>
       )}
+
+      {/* 选区气泡菜单：表格操作（行/列/合并/拆分/表头/删除）
+          光标停在表格内（空选区）时浮出，按钮直接调 Tiptap 内置命令。
+          合并/拆分依赖 CellSelection——用户必须先按住鼠标拖选多个单元格再点合并。 */}
+      {editor && editable && tableBubble.open && (
+        <div
+          className="fixed z-50 flex items-center gap-0.5 bg-app-elevated border border-app-border rounded-lg shadow-lg p-1"
+          style={{ top: tableBubble.top, left: tableBubble.left }}
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <ToolbarButton
+            title={t("tiptap.addRowBefore")}
+            onClick={() => editor.chain().focus().addRowBefore().run()}
+          >
+            <Rows3 size={16} className="rotate-180" />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.addRowAfter")}
+            onClick={() => editor.chain().focus().addRowAfter().run()}
+          >
+            <Rows3 size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.deleteRow")}
+            onClick={() => editor.chain().focus().deleteRow().run()}
+          >
+            <span className="flex items-center">
+              <Rows3 size={16} />
+              <Trash2 size={12} className="-ml-0.5" />
+            </span>
+          </ToolbarButton>
+          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <ToolbarButton
+            title={t("tiptap.addColumnBefore")}
+            onClick={() => editor.chain().focus().addColumnBefore().run()}
+          >
+            <Columns3 size={16} className="-scale-x-100" />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.addColumnAfter")}
+            onClick={() => editor.chain().focus().addColumnAfter().run()}
+          >
+            <Columns3 size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.deleteColumn")}
+            onClick={() => editor.chain().focus().deleteColumn().run()}
+          >
+            <span className="flex items-center">
+              <Columns3 size={16} />
+              <Trash2 size={12} className="-ml-0.5" />
+            </span>
+          </ToolbarButton>
+          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <ToolbarButton
+            title={t("tiptap.mergeCells")}
+            disabled={!editor.can().mergeCells()}
+            onClick={() => editor.chain().focus().mergeCells().run()}
+          >
+            <Merge size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.splitCell")}
+            disabled={!editor.can().splitCell()}
+            onClick={() => editor.chain().focus().splitCell().run()}
+          >
+            <Split size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.toggleHeaderRow")}
+            onClick={() => editor.chain().focus().toggleHeaderRow().run()}
+          >
+            <Heading size={16} />
+          </ToolbarButton>
+          <ToolbarButton
+            title={t("tiptap.resizeTable")}
+            onClick={() => {
+              // 读出当前表格的真实行列数：从光标所在 <table> DOM 数 tr / 第一行 td
+              const view = editor.view;
+              const { from } = view.state.selection;
+              let tableEl: HTMLTableElement | null = null;
+              try {
+                const dom = view.domAtPos(from).node as Node | null;
+                const el = dom instanceof Element ? dom : dom?.parentElement ?? null;
+                tableEl = el?.closest?.("table") as HTMLTableElement | null;
+              } catch { /* ignore */ }
+              const rows = tableEl?.querySelectorAll("tr").length ?? 3;
+              const cols = tableEl?.querySelector("tr")?.children.length ?? 3;
+              setResizeDialog({ open: true, rows, cols });
+              setTableBubble(b => ({ ...b, open: false }));
+            }}
+          >
+            <span className="text-xs px-1 tabular-nums">⊞</span>
+          </ToolbarButton>
+          <div className="w-px h-4 bg-app-border mx-0.5" />
+          <ToolbarButton
+            title={t("tiptap.deleteTable")}
+            onClick={() => editor.chain().focus().deleteTable().run()}
+          >
+            <Trash2 size={16} className="text-red-500" />
+          </ToolbarButton>
+        </div>
+      )}
+
+      {/* 调整表格尺寸对话框 */}
+      <TableResizeDialog
+        open={resizeDialog.open}
+        initialRows={resizeDialog.rows}
+        initialCols={resizeDialog.cols}
+        onCancel={() => setResizeDialog(d => ({ ...d, open: false }))}
+        onConfirm={(targetRows, targetCols) => {
+          // 按当前表格的行列数差值，批量加/删行列
+          // 注意：必须保证光标在表格内（关闭气泡时焦点已落在 cell 上，没问题）
+          const chain = editor.chain().focus();
+          const dRow = targetRows - resizeDialog.rows;
+          const dCol = targetCols - resizeDialog.cols;
+          for (let i = 0; i < Math.abs(dRow); i++) {
+            if (dRow > 0) chain.addRowAfter();
+            else chain.deleteRow();
+          }
+          for (let i = 0; i < Math.abs(dCol); i++) {
+            if (dCol > 0) chain.addColumnAfter();
+            else chain.deleteColumn();
+          }
+          chain.run();
+          setResizeDialog(d => ({ ...d, open: false }));
+        }}
+      />
 
       {/* Editor content
           paddingBottom 仅吃键盘高度即可（避光标被键盘遮）。
