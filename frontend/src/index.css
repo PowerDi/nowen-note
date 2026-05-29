@@ -711,6 +711,31 @@ html[data-code-theme="solarized-light"] {
   cursor: col-resize;
 }
 
+/* 行高拖拽手柄（自研 TableRowResizable 扩展使用）
+ * 单例 DOM，hover 在 <tr> 底边 ±5px 时由 plugin 动态定位 + 显示。
+ * 设计同 column-resize-handle：透明热区 + 一条 2px 蓝色横线。
+ */
+.tiptap-row-resize-handle {
+  /* 透明热区，扩展性更好；通过 ::before 画可见的横线 */
+  background: transparent !important;
+}
+.tiptap-row-resize-handle::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 2px;
+  background-color: var(--color-accent-primary, #3b82f6);
+  opacity: 0.6;
+  pointer-events: none;
+}
+.tiptap-row-resize-handle:hover::before {
+  opacity: 1;
+  height: 3px;
+}
+
 /* ===== 缩进级别 =====
  * 使用 margin-left（而非 padding-left）避免与列表自身的 padding-left 冲突，
  * 保证 bullet / ordered / task list / codeBlock / blockquote / table 等

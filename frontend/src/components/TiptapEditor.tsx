@@ -17,7 +17,11 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
-import { Table, TableRow, TableHeader, TableCell } from "@tiptap/extension-table";
+import { Table, TableHeader, TableCell } from "@tiptap/extension-table";
+// 自定义 TableRow：在原扩展基础上加 height 持久化 attribute + 行高拖拽手柄。
+// 之所以从 @tiptap/extension-table 解构里去掉 TableRow，是因为下面要用扩展过的版本，
+// 同名导出会冲突。行高语义为"min-height"——内容超出仍会撑开。
+import { TableRowResizable } from "./extensions/TableRowResizable";
 import TextAlign from "@tiptap/extension-text-align";
 import { common, createLowlight } from "lowlight";
 import { DOMParser as ProseMirrorDOMParser, Node as ProseMirrorNode } from "@tiptap/pm/model";
@@ -1392,7 +1396,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         lastColumnResizable: true,
         HTMLAttributes: { class: 'tiptap-table' },
       }),
-      TableRow,
+      // TableRowResizable: 替换原 TableRow，新增行高拖拽能力（rowHeight 存在 <tr style="height">）
+      TableRowResizable,
       TableHeader,
       TableCell,
       TextAlign.configure({
