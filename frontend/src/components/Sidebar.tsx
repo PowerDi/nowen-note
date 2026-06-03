@@ -627,7 +627,7 @@ function NotebookItem({
             {onCreateNote && (
               <button
                 className="w-full flex items-center gap-1.5 py-1 text-[11px] text-tx-tertiary hover:text-accent-primary transition-colors"
-                style={{ paddingLeft: ${(depth + 1) * 16 + 28}px }}
+                style={{ paddingLeft: `${(depth + 1) * 16 + 28}px` }}
                 onClick={(e) => { e.stopPropagation(); onCreateNote(notebook.id); }}
               >
                 <Plus size={12} />
@@ -691,7 +691,7 @@ function NoteNoteItem({
           "flex items-center gap-1.5 py-1 pr-1 rounded-md cursor-pointer text-xs group transition-colors min-w-0",
           isActive ? "bg-app-active text-tx-primary" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
         )}
-        style={{ paddingLeft: ${depth * 16 + 28}px }}
+        style={{ paddingLeft: `${depth * 16 + 28}px` }}
         onClick={() => onSelect(note.id)}
         onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuPos({ x: e.clientX, y: e.clientY }); setShowMenu(true); }}
       >
