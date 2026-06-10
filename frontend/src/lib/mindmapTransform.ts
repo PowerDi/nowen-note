@@ -1,4 +1,4 @@
-﻿import type { MindMapData, MindMapNode } from "@/types";
+import type { MindMapData, MindMapNode } from "@/types";
 
 const MAX_NODES = 80;
 const MAX_DEPTH = 4;
@@ -8,9 +8,9 @@ const MAX_DEPTH = 4;
  */
 export function cleanMermaidSource(source: string): string {
   return source
-    .replace(/^`mermaid\s*/i, "")
-    .replace(/^`\s*/i, "")
-    .replace(/\s*`\s*$/, "")
+    .replace(/^```mermaid\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```\s*$/i, "")
     .trim();
 }
 

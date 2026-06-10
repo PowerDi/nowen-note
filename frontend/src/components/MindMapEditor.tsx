@@ -10,6 +10,8 @@ import { api, getCurrentWorkspace } from "@/lib/api";
 import { MindMap, MindMapListItem, MindMapNode, MindMapData, MindMapRelation, MindMapBoundary } from "@/types";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { useMindMapHistory } from "@/hooks/useMindMapHistory";
+import { buildXmindContent, buildZip, downloadBlob } from "@/lib/mindmapExport";
 import { markdownToMindMapData, mindMapDataToMarkdown } from "@/lib/mindmapTransform";
 
 /* ===== 布局算法：计算树节点的 x,y 位置 ===== */
@@ -116,12 +118,12 @@ function flattenNodes(node: LayoutNode): LayoutNode[] {
 
 /* ===== 颜色方案 ===== */
 const DEPTH_COLORS = [
-  { bg: "rgb(99,102,241)", text: "#fff", border: "rgb(79,82,221)" },       // indigo (root)
-  { bg: "rgb(236,242,255)", text: "rgb(55,65,81)", border: "rgb(165,180,252)" }, // light indigo
-  { bg: "rgb(240,253,244)", text: "rgb(55,65,81)", border: "rgb(134,239,172)" }, // light green
-  { bg: "rgb(255,247,237)", text: "rgb(55,65,81)", border: "rgb(253,186,116)" }, // light orange
-  { bg: "rgb(245,243,255)", text: "rgb(55,65,81)", border: "rgb(196,181,253)" }, // light purple
-  { bg: "rgb(254,242,242)", text: "rgb(55,65,81)", border: "rgb(252,165,165)" }, // light red
+  { bg: "rgb(99,102,241)", text: "#fff", border: "rgb(99,102,241)" },
+  { bg: "#f0f4ff", text: "rgb(55,65,81)", border: "#dbeafe" },
+  { bg: "#f8fafc", text: "rgb(55,65,81)", border: "#e2e8f0" },
+  { bg: "#fafafa", text: "rgb(55,65,81)", border: "#e5e7eb" },
+  { bg: "#fafafa", text: "rgb(55,65,81)", border: "#e5e7eb" },
+  { bg: "#fafafa", text: "rgb(55,65,81)", border: "#e5e7eb" },
 ];
 
 const NODE_COLORS = [
@@ -305,7 +307,7 @@ function NodeBox({
         <div
           className={cn(
             "flex items-center h-full px-3 rounded-lg cursor-pointer select-none transition-shadow text-sm font-medium whitespace-nowrap overflow-hidden",
-            isSelected && "ring-2 ring-indigo-500 ring-offset-1 dark:ring-offset-zinc-900"
+            isSelected && "ring-2 ring-indigo-400/60 ring-offset-1 dark:ring-offset-zinc-900 shadow-sm"
           )}
           style={{
             background: nodeData?.style?.bg || color.bg,
@@ -447,12 +449,6 @@ function FloatingToolbar({
         <Edit2 size={isMobile ? 14 : 10} />
         <span className="hidden sm:inline">{t("mindMap.editNode")}</span>
       </button>
-      {!isRoot && (
-        <button className={cn("flex items-center gap-1 rounded-md bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shadow-md", isMobile ? "px-3 py-2 text-xs" : "px-2 py-1 text-[11px]")}
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}>
-          <Trash2 size={isMobile ? 14 : 10} />
-        </button>
-      )}
       <div className="relative" ref={moreRef}>
         <button className={cn("rounded-md bg-zinc-100 dark:bg-zinc-700 text-zinc-500 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors shadow-md", isMobile ? "p-2" : "p-1")}
           onClick={(e) => { e.stopPropagation(); setShowMore(!showMore); }}>
@@ -604,10 +600,10 @@ function MindMapListRow({
   return (
     <div
       className={cn(
-        "group flex items-center gap-3 px-4 py-3 rounded-lg border transition-all cursor-pointer",
+        "group flex items-center gap-3 px-3 py-2.5 rounded-md transition-all cursor-pointer border-l-2",
         isActive
-          ? "border-indigo-300 dark:border-indigo-700 bg-indigo-50/50 dark:bg-indigo-500/5"
-          : "border-app-border bg-app-elevated hover:shadow-md hover:border-indigo-200 dark:hover:border-indigo-800"
+          ? "border-l-indigo-500 bg-indigo-50/40 dark:bg-indigo-500/10"
+          : "border-l-transparent hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
       )}
       onClick={onSelect}
       onContextMenu={onContextMenu}
@@ -754,9 +750,6 @@ export default function MindMapCenter() {
       }
       setSelectedNodeId(null);
       setEditingNodeId(null);
-      setHistory([]);
-      setHistoryIndex(-1);
-      historyRef.current = { stack: [], idx: 1 };
       setZoom(1);
       setPan({ x: 60, y: 0 });
     } catch (err) {
@@ -904,7 +897,7 @@ export default function MindMapCenter() {
       collapsed: false,
       children: [...n.children, newNode],
     }));
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     setSelectedNodeId(newId);
     setEditingNodeId(newId);
@@ -933,7 +926,7 @@ export default function MindMapCenter() {
       ],
     };
     const newRoot = updateNode(mapData.root, parent.id, () => newParent);
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     setSelectedNodeId(newId);
     setEditingNodeId(newId);
@@ -946,7 +939,7 @@ export default function MindMapCenter() {
   const handleDeleteNode = useCallback((nodeId: string) => {
     if (!mapData || nodeId === "root") return;
     const newRoot = removeNode(mapData.root, nodeId);
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     setSelectedNodeId(null);
     pushHistory(newData);
@@ -958,7 +951,7 @@ export default function MindMapCenter() {
     if (!mapData || !editingNodeId) return;
     const trimmed = editValue.trim() || t("mindMap.newNode");
     const newRoot = updateNode(mapData.root, editingNodeId, (n) => ({ ...n, text: trimmed }));
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     pushHistory(newData);
     setEditingNodeId(null);
@@ -979,7 +972,7 @@ export default function MindMapCenter() {
       ...n,
       collapsed: !n.collapsed,
     }));
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     pushHistory(newData);
     triggerSave(newData);
@@ -997,7 +990,7 @@ export default function MindMapCenter() {
       ...n,
       markers: newMarkers.length > 0 ? newMarkers : undefined,
     }));
-    const newData = { root: newRoot };
+    const newData = { ...mapData, root: newRoot };
     setMapData(newData);
     pushHistory(newData);
     triggerSave(newData);
@@ -1006,13 +999,13 @@ export default function MindMapCenter() {
   const handleSetLink = useCallback((link: string) => {
     if (!mapData || !selectedNodeId) return;
     const newRoot = updateNode(mapData.root, selectedNodeId, (n) => ({ ...n, link: link || undefined }));
-    const newData = { root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
+    const newData = { ...mapData, root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
   }, [mapData, selectedNodeId, updateNode, triggerSave, pushHistory]);
 
   const handleSetNote = useCallback((note: string) => {
     if (!mapData || !selectedNodeId) return;
     const newRoot = updateNode(mapData.root, selectedNodeId, (n) => ({ ...n, note: note || undefined }));
-    const newData = { root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
+    const newData = { ...mapData, root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
   }, [mapData, selectedNodeId, updateNode, triggerSave, pushHistory]);
 
 
@@ -1095,7 +1088,7 @@ export default function MindMapCenter() {
   const handleSetColor = useCallback((style: { bg: string; color: string; border: string } | undefined) => {
     if (!mapData || !selectedNodeId) return;
     const newRoot = updateNode(mapData.root, selectedNodeId, (n) => ({ ...n, style: style || undefined }));
-    const newData = { root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
+    const newData = { ...mapData, root: newRoot }; setMapData(newData); pushHistory(newData); triggerSave(newData);
   }, [mapData, selectedNodeId, updateNode, triggerSave, pushHistory]);
 
   // 创建新导图
@@ -1739,7 +1732,7 @@ export default function MindMapCenter() {
                 )}
               </div>
               <div className="flex items-center gap-1">
-                {/* Undo */}
+                {/* Edit: Undo / Redo */}
                 <button onClick={handleUndo} disabled={!canUndo}
                   className={cn("p-1.5 rounded-md transition-colors", canUndo ? "hover:bg-app-hover text-tx-secondary" : "text-tx-tertiary/40 cursor-not-allowed")}
                   title={t("mindMap.undo")}><Undo2 size={16} /></button>
@@ -1748,7 +1741,7 @@ export default function MindMapCenter() {
                   className={cn("p-1.5 rounded-md transition-colors", canRedo ? "hover:bg-app-hover text-tx-secondary" : "text-tx-tertiary/40 cursor-not-allowed")}
                   title={t("mindMap.redo")}><Redo2 size={16} /></button>
                 <div className="w-px h-4 bg-app-border mx-0.5" />
-                {/* Outline toggle */}
+                {/* View: Outline / Layout / Zoom / Fullscreen / MiniMap */}
                 <button onClick={() => setShowOutline((v) => !v)}
                   className={cn("p-1.5 rounded-md transition-colors", showOutline ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-500" : "hover:bg-app-hover text-tx-secondary")}
                   title={t("mindMap.outline")}><PanelLeft size={16} /></button>
