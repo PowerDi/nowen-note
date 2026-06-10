@@ -414,7 +414,7 @@ export function requireWorkspaceFeature(feature: WorkspaceFeature) {
     const workspaceId = c.req.query("workspaceId") || c.req.param("workspaceId") || "";
 
     // 个人空间：永远放行
-    if (!workspaceId) {
+    if (!workspaceId || workspaceId === "personal") {
       await next();
       return;
     }
