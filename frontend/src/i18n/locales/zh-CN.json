@@ -1343,12 +1343,12 @@
     "drawingRelation": "连线模式 - 点击节点",
     "selectNodesFirst": "请先选中至少2个节点",
     "boundaryCreated": "边界框已创建",
-    "templateBlank": "????",
-    "templateProject": "????",
-    "templateMeeting": "????",
-    "templateReading": "????",
-    "templateAnalysis": "????",
-    "chooseTemplate": "????"
+    "templateBlank": "空白导图",
+    "templateProject": "项目计划",
+    "templateMeeting": "会议纪要",
+    "templateReading": "读书笔记",
+    "templateAnalysis": "问题分析",
+    "chooseTemplate": "选择模板"
   },
   "ai": {
     "title": "AI 智能配置",
