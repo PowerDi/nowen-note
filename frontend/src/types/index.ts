@@ -438,6 +438,29 @@ export interface TaskProject {
   progress?: number;
 }
 
+/** Task template item */
+export interface TaskTemplateItem {
+  title: string;
+  priority: number;
+  relativeDueDays: number;
+  parentIndex: number | null;
+  sortOrder: number;
+}
+
+/** Task template */
+export interface TaskTemplate {
+  id: string;
+  userId: string;
+  workspaceId: string | null;
+  name: string;
+  description: string | null;
+  icon: string | null;
+  color: string | null;
+  items: TaskTemplateItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface CustomFont {
   id: string;
   name: string;

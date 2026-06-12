@@ -6,7 +6,7 @@ import {
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
   LayoutGrid, LayoutList, Calendar as CalendarIcon, FolderOpen, Plus, ChevronRight,
-  MoreHorizontal, Trash2 as TrashIcon,
+  MoreHorizontal, Trash2 as TrashIcon, FileText,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
@@ -32,6 +32,7 @@ import { useTaskProjects } from "./tasks/useTaskProjects";
 import { TaskBoardView } from "./tasks/TaskBoardView";
 import { TaskCalendarView } from "./tasks/TaskCalendarView";
 import { moveTaskToDate } from "./tasks/taskDateUtils";
+import { TaskTemplatePicker } from "./tasks/TaskTemplatePicker";
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 
 /* ===== Main Component ===== */
@@ -84,6 +85,7 @@ export default function TaskCenter() {
   const [editProjectColor, setEditProjectColor] = useState("#6366f1");
   const [showProjectMenu, setShowProjectMenu] = useState<string | null>(null);
   const [mobileProjectOpen, setMobileProjectOpen] = useState(false);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
 
   // Phase 4: batch select mode
   const [selectMode, setSelectMode] = useState(false);
@@ -699,6 +701,16 @@ export default function TaskCenter() {
             onSubmit={handleCreate}
             inputRef={inputRef}
           />
+          <div className="flex items-center gap-1 mt-2">
+            <button
+              type="button"
+              onClick={() => setShowTemplatePicker(true)}
+              className="flex items-center gap-1 px-2 py-1 text-xs text-tx-tertiary hover:text-accent-primary rounded-md hover:bg-accent-primary/5 transition-colors"
+            >
+              <FileText size={13} />
+              {t("tasks.templates.button")}
+            </button>
+          </div>
         </div>
 
         {/* Task List / Board / Calendar View */}
@@ -880,6 +892,17 @@ export default function TaskCenter() {
             onToggle={handleToggle}
             onSelectTask={(taskId) => setSelectedTaskId(taskId)}
             onCreated={async () => { await loadTasks(); const s = await api.getTaskStats(); setStats(s); refreshCounts(); }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Template Picker */}
+      <AnimatePresence>
+        {showTemplatePicker && (
+          <TaskTemplatePicker
+            projects={projects}
+            onClose={() => setShowTemplatePicker(false)}
+            onApplied={async () => { setShowTemplatePicker(false); await loadTasks(); const s = await api.getTaskStats(); setStats(s); refreshCounts(); }}
           />
         )}
       </AnimatePresence>

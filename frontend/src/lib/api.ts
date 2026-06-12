@@ -1152,7 +1152,24 @@ export const api = {
     request<import("@/types").TaskProject>(`/task-projects/${id}`, { method: "PUT", body: JSON.stringify(data) }),
   deleteTaskProject: (id: string) =>
     request(`/task-projects/${id}`, { method: "DELETE" }),
-  // Task reminders
+  // Task templates
+  getTaskTemplates: () => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<import("@/types").TaskTemplate[]>(`/task-templates${qs}`);
+  },
+  createTaskTemplate: (data: { name: string; description?: string; icon?: string; color?: string; items: import("@/types").TaskTemplateItem[] }) => {
+    const ws = getCurrentWorkspace();
+    const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
+    return request<import("@/types").TaskTemplate>(`/task-templates${qs}`, { method: "POST", body: JSON.stringify(data) });
+  },
+  updateTaskTemplate: (id: string, data: Partial<import("@/types").TaskTemplate>) =>
+    request<import("@/types").TaskTemplate>(`/task-templates/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTaskTemplate: (id: string) =>
+    request(`/task-templates/${id}`, { method: "DELETE" }),
+  applyTaskTemplate: (id: string, options: { projectId?: string | null; parentId?: string | null; baseDate?: string | null }) =>
+    request<{ createdTasks: any[]; count: number }>(`/task-templates/${id}/apply`, { method: "POST", body: JSON.stringify(options) }),
+    // Task reminders
   getRecentReminders: (since: number) =>
     request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number }> }>(
       `/task-reminders/recent?since=${since}`

@@ -1426,6 +1426,28 @@ export const MIGRATIONS: Migration[] = [
       }
     },
   },
+  {
+    version: 24,
+    name: "task-templates",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_templates (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          workspaceId TEXT,
+          name TEXT NOT NULL,
+          description TEXT,
+          icon TEXT,
+          color TEXT,
+          items TEXT NOT NULL DEFAULT '[]',
+          createdAt TEXT DEFAULT (datetime('now')),
+          updatedAt TEXT DEFAULT (datetime('now'))
+        )
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_templates_user ON task_templates(userId)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_templates_workspace ON task_templates(workspaceId)`);
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

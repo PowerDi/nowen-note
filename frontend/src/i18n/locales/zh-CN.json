@@ -1194,6 +1194,21 @@
       "years": "年",
       "endDate": "重复截止日期",
       "needDueDate": "请先设置截止日期才能启用重复"
+    },
+    "templates": {
+      "title": "任务模板",
+      "button": "模板",
+      "create": "创建",
+      "use": "应用",
+      "saveCurrent": "保存为模板",
+      "name": "模板名称",
+      "description": "描述（可选）",
+      "baseDate": "基准日期",
+      "selectProject": "选择项目",
+      "noTemplates": "暂无模板",
+      "created": "模板已创建",
+      "failed": "操作失败",
+      "deleteConfirm": "确定删除此模板？"
     }
   },
   "tags": {

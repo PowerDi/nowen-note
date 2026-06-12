@@ -1182,6 +1182,21 @@
       "years": "year(s)",
       "endDate": "Repeat until",
       "needDueDate": "Set a due date first to enable repeat"
+    },
+    "templates": {
+      "title": "Task Templates",
+      "button": "Templates",
+      "create": "Create",
+      "use": "Apply",
+      "saveCurrent": "Save as Template",
+      "name": "Template name",
+      "description": "Description (optional)",
+      "baseDate": "Base date",
+      "selectProject": "Select project",
+      "noTemplates": "No templates yet",
+      "created": "Template created",
+      "failed": "Operation failed",
+      "deleteConfirm": "Delete this template?"
     }
   },
   "tags": {
