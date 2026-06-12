@@ -1,4 +1,4 @@
-﻿import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
+import { Notebook, NotebookMember, NotebookShareLink, Note, NoteListItem, Tag, SearchResult, User, UserPublicInfo, Task, TaskStats, TaskFilter, CustomFont, MindMap, MindMapListItem, Diary, DiaryTimeline, DiaryStats, Share, ShareInfo, SharedNoteContent, NoteVersion, ShareComment, Workspace, WorkspaceAdminItem, WorkspaceMember, WorkspaceInvite, WorkspaceRole, WorkspaceFeatures, FileItem, FileDetail, FileListResponse, FileStats, FileSortKey, FileCategory, FileFilter, FileMyUploadsRef } from "@/types";
 import {
   shouldEnqueue as _shouldEnqueue,
   enqueue as _enqueue,
@@ -1133,6 +1133,15 @@ export const api = {
   deleteTask: (id: string) => request(`/tasks/${id}`, { method: "DELETE" }),
   batchTasks: (ids: string[], action: "complete" | "delete") =>
     request<{ success: boolean; affected: number }>("/tasks/batch", { method: "POST", body: JSON.stringify({ ids, action }) }),
+  // Task reminders
+  getTaskReminders: (taskId: string) =>
+    request<import("@/types").TaskReminder[]>(`/task-reminders/${taskId}`),
+  createTaskReminder: (taskId: string, offsetMinutes: number) =>
+    request<import("@/types").TaskReminder>(`/task-reminders/${taskId}`, { method: "POST", body: JSON.stringify({ offsetMinutes }) }),
+  updateTaskReminder: (reminderId: string, data: { offsetMinutes?: number; enabled?: boolean }) =>
+    request<import("@/types").TaskReminder>(`/task-reminders/${reminderId}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteTaskReminder: (reminderId: string) =>
+    request(`/task-reminders/${reminderId}`, { method: "DELETE" }),
   getTaskStats: () => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";

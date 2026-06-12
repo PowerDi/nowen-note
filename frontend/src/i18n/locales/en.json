@@ -1117,7 +1117,11 @@
       "testNotification": "Test notification",
       "testBody": "This is a test reminder",
       "pushComingSoon": "APP push coming soon",
-      "emailComingSoon": "Email reminders coming soon"
+      "emailComingSoon": "Email reminders coming soon",
+      "addReminder": "Add reminder",
+      "noReminders": "No reminders",
+      "enableReminder": "Enable reminder",
+      "disableReminder": "Disable reminder"
     },
     "search": "Search tasks",
     "searchPlaceholder": "Search by title...",

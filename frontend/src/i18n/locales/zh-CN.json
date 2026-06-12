@@ -1129,7 +1129,11 @@
       "testNotification": "测试通知",
       "testBody": "这是一条测试提醒",
       "pushComingSoon": "APP 推送即将支持",
-      "emailComingSoon": "邮件提醒即将支持"
+      "emailComingSoon": "邮件提醒即将支持",
+      "addReminder": "添加提醒",
+      "noReminders": "暂无提醒",
+      "enableReminder": "启用提醒",
+      "disableReminder": "禁用提醒"
     },
     "search": "搜索任务",
     "searchPlaceholder": "输入关键词搜索...",

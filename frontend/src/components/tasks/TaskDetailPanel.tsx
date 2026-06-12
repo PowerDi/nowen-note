@@ -1,21 +1,29 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
-import { Flag, Trash2, X, Bell, CheckCircle2, Circle } from "lucide-react";
+import { Flag, Trash2, X, Bell, BellOff, CheckCircle2, Circle, Plus, Clock } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { zhCN, enUS } from "date-fns/locale";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import type { Task, TaskPriority } from "@/types";
+import { api } from "@/lib/api";
+import type { Task, TaskPriority, TaskReminder } from "@/types";
 import type { TaskTreeNode } from "./taskProgress";
 import { calculateTaskProgress } from "./taskProgress";
 import { parseTaskTitle, TitleView } from "./taskTitleTokens";
 
-/* ===== 任务详情面板 ===== */
+/* preset offset options (minutes) */
+const PRESET_OFFSETS = [
+  { minutes: 0, key: "atDue" },
+  { minutes: 5, key: "before5min" },
+  { minutes: 30, key: "before30min" },
+  { minutes: 60, key: "before1hour" },
+  { minutes: 1440, key: "before1day" },
+] as const;
+
+/* ===== Task Detail Panel ===== */
 export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   task: Task;
-  /** 可选：树形节点（用于计算进度），过滤模式下不传 */
   treeNode?: TaskTreeNode | null;
-  /** 所有任务（用于展示子任务列表） */
   allTasks?: Task[];
   onClose: () => void;
   onUpdate: (id: string, data: Partial<Task>) => void;
@@ -31,31 +39,93 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [dueAt, setDueAt] = useState(task.dueAt || "");
   const titleRef = useRef<HTMLTextAreaElement>(null);
 
+  // reminder state
+  const [reminders, setReminders] = useState<TaskReminder[]>([]);
+  const [remindersLoading, setRemindersLoading] = useState(false);
+  const [showAddReminder, setShowAddReminder] = useState(false);
+
   const PRIORITY_CONFIG: Record<number, { label: string; color: string; flagClass: string }> = {
-    3: { label: t('tasks.high'), color: "text-red-500", flagClass: "text-red-500" },
-    2: { label: t('tasks.medium'), color: "text-amber-500", flagClass: "text-amber-500" },
-    1: { label: t('tasks.low'), color: "text-blue-400", flagClass: "text-blue-400" },
+    3: { label: t("tasks.high"), color: "text-red-500", flagClass: "text-red-500" },
+    2: { label: t("tasks.medium"), color: "text-amber-500", flagClass: "text-amber-500" },
+    1: { label: t("tasks.low"), color: "text-blue-400", flagClass: "text-blue-400" },
   };
 
   useEffect(() => {
     setTitle(task.title);
     setPriority(task.priority);
     setDueDate(task.dueDate || "");
-      setDueAt(task.dueAt || "");
+    setDueAt(task.dueAt || "");
   }, [task.id]);
+
+  // load reminders for this task
+  const loadReminders = useCallback(async () => {
+    setRemindersLoading(true);
+    try {
+      const data = await api.getTaskReminders(task.id);
+      setReminders(data);
+    } catch {
+      // ignore
+    } finally {
+      setRemindersLoading(false);
+    }
+  }, [task.id]);
+
+  useEffect(() => { loadReminders(); }, [loadReminders]);
 
   const handleSave = () => {
     onUpdate(task.id, { title: title.trim() || task.title, priority, dueDate: dueDate || null, dueAt: dueAt || null });
   };
 
   const hasRichTokens = parseTaskTitle(task.title).some((tok) => tok.kind !== "text");
-
   const progressInfo = treeNode ? calculateTaskProgress(treeNode) : null;
 
-  // 直接子任务
   const children = allTasks
     ? allTasks.filter((t) => t.parentId === task.id)
     : [];
+
+  const hasDeadline = !!(task.dueDate || task.dueAt);
+
+  // reminder handlers
+  const handleAddReminder = async (offsetMinutes: number) => {
+    try {
+      const r = await api.createTaskReminder(task.id, offsetMinutes);
+      setReminders((prev) => [...prev, r].sort((a, b) => a.offsetMinutes - b.offsetMinutes));
+      setShowAddReminder(false);
+    } catch (err) {
+      console.error("Failed to create reminder:", err);
+    }
+  };
+
+  const handleToggleReminder = async (reminderId: string, enabled: boolean) => {
+    setReminders((prev) => prev.map((r) => r.id === reminderId ? { ...r, enabled: enabled ? 1 : 0 } : r));
+    try {
+      await api.updateTaskReminder(reminderId, { enabled });
+    } catch { loadReminders(); }
+  };
+
+  const handleDeleteReminder = async (reminderId: string) => {
+    setReminders((prev) => prev.filter((r) => r.id !== reminderId));
+    try {
+      await api.deleteTaskReminder(reminderId);
+    } catch { loadReminders(); }
+  };
+
+  // test notification
+  const handleTestNotification = async () => {
+    const desktop = (window as any).nowenDesktop;
+    if (desktop?.taskNotify) {
+      await desktop.taskNotify(t("tasks.reminder.title"), t("tasks.reminder.testBody"));
+    } else if ("Notification" in window) {
+      if (Notification.permission === "granted") {
+        new Notification(t("tasks.reminder.title"), { body: t("tasks.reminder.testBody") });
+      } else if (Notification.permission !== "denied") {
+        const perm = await Notification.requestPermission();
+        if (perm === "granted") {
+          new Notification(t("tasks.reminder.title"), { body: t("tasks.reminder.testBody") });
+        }
+      }
+    }
+  };
 
   return (
     <motion.div
@@ -71,8 +141,8 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
-        <span className="text-sm font-semibold text-tx-primary">{t('tasks.taskDetail')}</span>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border" style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}>
+        <span className="text-sm font-semibold text-tx-primary">{t("tasks.taskDetail")}</span>
         <button onClick={onClose} className="p-1 rounded-md hover:bg-app-hover transition-colors">
           <X size={16} className="text-tx-secondary" />
         </button>
@@ -80,9 +150,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 
       {/* Body */}
       <div className="flex-1 overflow-auto p-4 space-y-5">
-        {/* 标题 */}
+        {/* Title */}
         <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.taskTitle')}</label>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.taskTitle")}</label>
           <textarea
             ref={titleRef}
             value={title}
@@ -98,9 +168,9 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           )}
         </div>
 
-        {/* 优先级 */}
+        {/* Priority */}
         <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.priority')}</label>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.priority")}</label>
           <div className="flex gap-2">
             {([3, 2, 1] as TaskPriority[]).map((p) => {
               const cfg = PRIORITY_CONFIG[p];
@@ -109,13 +179,13 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                   key={p}
                   onClick={() => { setPriority(p); onUpdate(task.id, { priority: p }); }}
                   className={cn(
-                    "flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-xs font-medium border transition-all",
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-all",
                     priority === p
-                      ? "border-accent-primary bg-accent-primary/10 text-accent-primary"
-                      : "border-app-border text-tx-secondary hover:bg-app-hover"
+                      ? `${cfg.color} border-current bg-current/10`
+                      : "text-tx-tertiary border-app-border hover:border-tx-tertiary"
                   )}
                 >
-                  <Flag size={12} className={priority === p ? cfg.flagClass : ""} />
+                  <Flag size={12} />
                   {cfg.label}
                 </button>
               );
@@ -123,57 +193,39 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           </div>
         </div>
 
-        {/* 截止日期 + 时间 */}
+        {/* Due Date */}
         <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.dueDate')}</label>
-          <div className="flex gap-2">
-            <input
-              type="date"
-              value={dueDate ? dueDate.split("T")[0] : ""}
-              onChange={(e) => {
-                const val = e.target.value;
-                setDueDate(val || "");
-                // 如果有时间，合并为 dueAt
-                if (val && dueAt) {
-                  const time = dueAt.split("T")[1] || "23:59";
-                  const newDueAt = val + "T" + time;
-                  setDueAt(newDueAt);
-                  onUpdate(task.id, { dueDate: val || null, dueAt: newDueAt });
-                } else {
-                  onUpdate(task.id, { dueDate: val || null, dueAt: val ? val + "T23:59" : null });
-                }
-              }}
-              className="flex-1 px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
-            />
-            <input
-              type="time"
-              value={dueAt ? (dueAt.split("T")[1] || "") : ""}
-              onChange={(e) => {
-                const time = e.target.value;
-                if (dueDate && time) {
-                  const newDueAt = dueDate + "T" + time;
-                  setDueAt(newDueAt);
-                  onUpdate(task.id, { dueAt: newDueAt });
-                }
-              }}
-              className="w-[120px] px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
-            />
-          </div>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.dueDate")}</label>
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => { setDueDate(e.target.value); onUpdate(task.id, { dueDate: e.target.value || null }); }}
+            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+          />
         </div>
 
-        {/* 创建时间 */}
+        {/* Due At (time) */}
         <div>
-          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t('tasks.createdAt')}</label>
-          <span className="text-sm text-tx-secondary">
-            {format(parseISO(task.createdAt + (task.createdAt.endsWith("Z") ? "" : "Z")), "yyyy-MM-dd HH:mm", { locale: dateLocale })}
-          </span>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.dueAt") || "Due Time"}</label>
+          <input
+            type="datetime-local"
+            value={dueAt}
+            onChange={(e) => { setDueAt(e.target.value); onUpdate(task.id, { dueAt: e.target.value || null }); }}
+            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+          />
         </div>
 
-        {/* === 进度详情卡片 === */}
-        <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-3">
-          <div className="flex items-center gap-2">
+        {/* Created At */}
+        <div className="text-xs text-tx-tertiary">
+          {t("tasks.createdAt")}: {task.createdAt ? format(parseISO(task.createdAt), "yyyy-MM-dd HH:mm", { locale: dateLocale }) : "-"}
+        </div>
+
+        {/* Progress Section */}
+        <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <Clock size={14} className="text-tx-tertiary" />
             <span className="text-xs text-tx-tertiary uppercase tracking-wider font-medium">
-              {t('tasks.progress.title')}
+              {t("tasks.progress.title")}
             </span>
           </div>
 
@@ -191,7 +243,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                 </div>
               </div>
               <div className="text-xs text-tx-secondary">
-                {t('tasks.progress.childrenStats', {
+                {t("tasks.progress.childrenStats", {
                   completed: progressInfo.completedChildren,
                   total: progressInfo.totalChildren,
                 })}
@@ -200,24 +252,24 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           ) : (
             <div className="text-sm text-tx-tertiary">
               {task.isCompleted === 1
-                ? t('tasks.progress.completed')
-                : t('tasks.progress.inProgress')}
+                ? t("tasks.progress.completed")
+                : t("tasks.progress.inProgress")}
             </div>
           )}
 
           {task.dueDate && (
             <div className="text-xs text-tx-tertiary">
-              {t('tasks.progress.dueLabel')}: {format(parseISO(task.dueDate), "yyyy\u5E74M\u6708d\u65E5", { locale: dateLocale })}
+              {t("tasks.progress.dueLabel")}: {format(parseISO(task.dueDate), "yyyy\u5E74M\u6708d\u65E5", { locale: dateLocale })}
             </div>
           )}
         </div>
 
-        {/* === 子任务列表 === */}
+        {/* Subtask list */}
         {children.length > 0 && (
           <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-2">
             <div className="flex items-center justify-between mb-2">
               <span className="text-xs text-tx-tertiary uppercase tracking-wider font-medium">
-                {t('tasks.subtasks')}
+                {t("tasks.subtasks")}
               </span>
               <span className="text-[10px] text-tx-tertiary">
                 {children.filter((c) => c.isCompleted === 1).length}/{children.length}
@@ -233,10 +285,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
                     onClick={() => onSelectTask?.(child.id)}
                   >
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggle?.(child.id);
-                      }}
+                      onClick={(e) => { e.stopPropagation(); onToggle?.(child.id); }}
                       className="flex-shrink-0"
                     >
                       {child.isCompleted === 1 ? (
@@ -259,31 +308,115 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
           </div>
         )}
 
-        {/* === 提醒设置占位区（Coming Soon） === */}
-        <div className="rounded-lg border border-app-border bg-app-elevated/30 p-4 opacity-60">
-          <div className="flex items-center gap-2 mb-2">
+        {/* ===== Reminder Section (functional) ===== */}
+        <div className="rounded-lg border border-app-border bg-app-elevated/50 p-4 space-y-3">
+          <div className="flex items-center gap-2">
             <Bell size={14} className="text-tx-tertiary" />
             <span className="text-xs text-tx-tertiary uppercase tracking-wider font-medium">
-              {t('tasks.reminder.title')}
+              {t("tasks.reminder.title")}
             </span>
-            <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded-full bg-app-border text-tx-tertiary">
-              Coming Soon
-            </span>
+            {/* test notification button */}
+            <button
+              onClick={handleTestNotification}
+              className="ml-auto text-[10px] px-2 py-0.5 rounded-full border border-app-border text-tx-tertiary hover:text-accent-primary hover:border-accent-primary/30 transition-colors"
+              title={t("tasks.reminder.testNotification")}
+            >
+              {t("tasks.reminder.testNotification")}
+            </button>
           </div>
-          <p className="text-xs text-tx-tertiary">
-            {t('tasks.reminder.comingSoon')}
-          </p>
+
+          {!hasDeadline ? (
+            <p className="text-xs text-tx-tertiary">{t("tasks.reminder.needDueDate")}</p>
+          ) : (
+            <>
+              {/* existing reminders */}
+              {remindersLoading ? (
+                <div className="text-xs text-tx-tertiary">{t("common.loading")}</div>
+              ) : reminders.length === 0 && !showAddReminder ? (
+                <p className="text-xs text-tx-tertiary">{t("tasks.noSubtasks") /* reuse or just say no reminders */}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {reminders.map((r) => (
+                    <div key={r.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-app-bg border border-app-border">
+                      <button
+                        onClick={() => handleToggleReminder(r.id, r.enabled === 0)}
+                        className="flex-shrink-0"
+                      >
+                        {r.enabled ? (
+                          <Bell size={14} className="text-accent-primary" />
+                        ) : (
+                          <BellOff size={14} className="text-tx-tertiary" />
+                        )}
+                      </button>
+                      <span className={cn(
+                        "flex-1 text-xs",
+                        r.enabled ? "text-tx-primary" : "text-tx-tertiary line-through"
+                      )}>
+                        {formatOffsetMinutes(r.offsetMinutes, t)}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteReminder(r.id)}
+                        className="text-tx-tertiary hover:text-accent-danger transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add reminder */}
+              {showAddReminder ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESET_OFFSETS.map((preset) => {
+                      const alreadyExists = reminders.some((r) => r.offsetMinutes === preset.minutes);
+                      return (
+                        <button
+                          key={preset.minutes}
+                          onClick={() => handleAddReminder(preset.minutes)}
+                          disabled={alreadyExists}
+                          className={cn(
+                            "text-[11px] px-2.5 py-1 rounded-full border transition-colors",
+                            alreadyExists
+                              ? "opacity-40 cursor-not-allowed border-app-border text-tx-tertiary"
+                              : "border-accent-primary/30 text-accent-primary hover:bg-accent-primary/10"
+                          )}
+                        >
+                          {t(`tasks.reminder.${preset.key}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    onClick={() => setShowAddReminder(false)}
+                    className="text-[11px] text-tx-tertiary hover:text-tx-secondary"
+                  >
+                    {t("tasks.batchCancel")}
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowAddReminder(true)}
+                  className="flex items-center gap-1 text-xs text-accent-primary hover:text-accent-primary/80 transition-colors"
+                >
+                  <Plus size={14} />
+                  {t("tasks.reminder.addReminder") || "Add reminder"}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-app-border" style={{ paddingBottom: 'calc(var(--safe-area-bottom) + 16px)' }}>
+      <div className="p-4 border-t border-app-border" style={{ paddingBottom: "calc(var(--safe-area-bottom) + 16px)" }}>
         <button
           onClick={() => { onDelete(task.id); onClose(); }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm text-accent-danger border border-accent-danger/30 hover:bg-accent-danger/10 transition-colors"
         >
           <Trash2 size={14} />
-          {t('tasks.deleteTask')}
+          {t("tasks.deleteTask")}
         </button>
       </div>
     </motion.div>
@@ -291,3 +424,15 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
 });
 
 TaskDetailPanel.displayName = "TaskDetailPanel";
+
+/** Format offsetMinutes into human-readable string */
+function formatOffsetMinutes(minutes: number, t: any): string {
+  if (minutes === 0) return t("tasks.reminder.atDue");
+  if (minutes === 5) return t("tasks.reminder.before5min");
+  if (minutes === 30) return t("tasks.reminder.before30min");
+  if (minutes === 60) return t("tasks.reminder.before1hour");
+  if (minutes === 1440) return t("tasks.reminder.before1day");
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h ${minutes % 60 > 0 ? minutes % 60 + "min" : ""}`;
+  return `${Math.floor(minutes / 1440)}d`;
+}

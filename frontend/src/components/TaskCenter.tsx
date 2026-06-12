@@ -25,6 +25,7 @@ import { TaskTreeRow } from "./tasks/TaskTreeRow";
 import { TaskQuickAdd } from "./tasks/TaskQuickAdd";
 import { TaskDetailPanel } from "./tasks/TaskDetailPanel";
 import { FlatTaskRow } from "./tasks/FlatTaskRow";
+import { useReminderNotifier } from "./tasks/useReminderNotifier";
 
 /* ===== Main Component ===== */
 export default function TaskCenter() {
@@ -66,6 +67,9 @@ export default function TaskCenter() {
     toggleExpand,
     isTreeMode,
   } = useTaskTree(tasks, filter);
+
+  // background reminder notifier
+  useReminderNotifier();
 
   // getDescendantIds with cycle protection
   const getDescendantIds = useCallback((rootId: string, taskList: Task[], visited = new Set<string>()): string[] => {

@@ -1,4 +1,4 @@
-﻿export interface User {
+export interface User {
   id: string;
   username: string;
   email: string | null;
@@ -395,6 +395,17 @@ export interface TaskStats {
   today: number;
   overdue: number;
   week: number;
+}
+
+/** Task reminder config */
+export interface TaskReminder {
+  id: string;
+  taskId: string;
+  userId: string;
+  offsetMinutes: number;
+  enabled: number;
+  lastNotifiedAt: string | null;
+  createdAt: string;
 }
 
 export interface CustomFont {
