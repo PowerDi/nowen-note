@@ -1366,6 +1366,40 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+
+  {
+    version: 22,
+    name: "task-projects",
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_projects (
+          id TEXT PRIMARY KEY,
+          userId TEXT NOT NULL,
+          workspaceId TEXT,
+          name TEXT NOT NULL,
+          icon TEXT DEFAULT 'folder',
+          color TEXT DEFAULT '#6366f1',
+          sortOrder INTEGER DEFAULT 0,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_task_projects_user ON task_projects(userId);
+        CREATE INDEX IF NOT EXISTS idx_task_projects_ws ON task_projects(workspaceId);
+      `);
+      // Add projectId and status columns to tasks table
+      const cols = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+      const colNames = new Set(cols.map((c) => c.name));
+      if (!colNames.has("projectId")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN projectId TEXT");
+      }
+      if (!colNames.has("status")) {
+        db.exec("ALTER TABLE tasks ADD COLUMN status TEXT NOT NULL DEFAULT 'todo'");
+        db.exec("UPDATE tasks SET status = 'done' WHERE isCompleted = 1");
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(projectId)");
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */
