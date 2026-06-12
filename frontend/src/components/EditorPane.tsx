@@ -1983,7 +1983,7 @@ export default function EditorPane() {
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <Share2 size={15} className="text-emerald-500" />
-                    <span>����</span>
+                    <span>{t('editor.shareNote')}</span>
                   </button>
                   {/* �汾��ʷ */}
                   <button
@@ -1994,7 +1994,7 @@ export default function EditorPane() {
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <History size={15} className="text-violet-500" />
-                    <span>�汾��ʷ</span>
+                    <span>{t('editor.versionHistory')}</span>
                   </button>
                   {/* ���� */}
                   <button
@@ -2005,7 +2005,7 @@ export default function EditorPane() {
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <MessageCircle size={15} className="text-blue-500" />
-                    <span>������ע</span>
+                    <span>{t('editor.noteComments')}</span>
                   </button>
                   {/* ����Ŀ¼ */}
                   <button
@@ -2016,7 +2016,7 @@ export default function EditorPane() {
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <Paperclip size={15} className="text-amber-500" />
-                    <span>����Ŀ¼</span>
+                    <span>{t('editor.attachments')}</span>
                   </button>
                   {/* HTML Ԥ�� / �༭�л����� HTML Ƭ�αʼ���ʾ����ȫ��¡��֧�ֱ༭�� */}
                   {noteIsHtml && !noteIsFullHtmlDoc && (
@@ -2330,7 +2330,7 @@ export default function EditorPane() {
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setShowShareModal(true)}
-title="删除笔记"
+            title={t('editor.shareNote')}
           >
             <Share2 size={14} className="text-emerald-500" />
           </Button>
@@ -2339,7 +2339,7 @@ title="删除笔记"
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setShowVersionHistory(true)}
-title="版本历史"
+            title={t('editor.versionHistory')}
           >
             <History size={14} className="text-violet-500" />
           </Button>
@@ -2348,7 +2348,7 @@ title="版本历史"
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setShowCommentPanel(true)}
-title="笔记标注"
+            title={t('editor.noteComments')}
           >
             <MessageCircle size={14} className="text-blue-500" />
           </Button>
@@ -2357,7 +2357,7 @@ title="笔记标注"
           <Button
             variant="ghost" size="icon" className="h-7 w-7"
             onClick={() => setShowAttachmentsPanel(true)}
-title="笔记目录"
+            title={t('editor.attachments')}
           >
             <Paperclip size={14} className="text-amber-500" />
           </Button>
