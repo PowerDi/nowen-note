@@ -199,7 +199,7 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
 
   const body: any = await c.req.json();
   const id = crypto.randomUUID();
-  const { title, priority = 2, dueDate = null, dueAt = null, noteId = null, parentId = null } = body;
+  const { title, priority = 2, dueDate = null, dueAt = null, startDate = null, noteId = null, parentId = null } = body;
   const repeatRule = body.repeatRule || "none";
   const repeatInterval = body.repeatInterval ?? 1;
   const repeatEndDate = body.repeatEndDate ?? null;
@@ -215,6 +215,10 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   }
   if (repeatRule !== "none" && !dueDate && !dueAt) {
     return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
+  }
+
+  if (startDate && dueDate && startDate > dueDate) {
+    return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
   }
 
   if (!title || !title.trim()) {
@@ -262,9 +266,9 @@ tasks.post("/", requireWorkspaceFeature("tasks"), async (c) => {
   const effectiveIsCompleted = status === "done" ? 1 : 0;
 
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, effectiveWorkspaceId, title.trim(), effectiveIsCompleted, priority, dueDate, dueAt, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId);
+    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, effectiveWorkspaceId, title.trim(), effectiveIsCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId);
 
   const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   return c.json(task, 201);
@@ -291,6 +295,7 @@ tasks.put("/:id", (c) => {
     const priority = body.priority ?? existing.priority;
     const dueDate = body.dueDate !== undefined ? body.dueDate : existing.dueDate;
     const dueAt = body.dueAt !== undefined ? body.dueAt : existing.dueAt;
+    const startDate = body.startDate !== undefined ? body.startDate : existing.startDate;
     const noteId = body.noteId !== undefined ? body.noteId : existing.noteId;
     const parentId = body.parentId !== undefined ? body.parentId : existing.parentId;
     const sortOrder = body.sortOrder ?? existing.sortOrder;
@@ -310,6 +315,10 @@ tasks.put("/:id", (c) => {
     }
     if (repeatRule !== "none" && !dueDate && !dueAt) {
       return c.json({ error: "Repeating task requires dueDate or dueAt", code: "REPEAT_REQUIRES_DATE" }, 400);
+    }
+
+    if (startDate && dueDate && startDate > dueDate) {
+      return c.json({ error: "startDate cannot be after dueDate", code: "INVALID_DATE_RANGE" }, 400);
     }
 
     // Fix 5: status / isCompleted bidirectional sync
@@ -382,10 +391,10 @@ tasks.put("/:id", (c) => {
     }
 
     db.prepare(`
-      UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?,
+      UPDATE tasks SET title = ?, isCompleted = ?, priority = ?, dueDate = ?, dueAt = ?, startDate = ?,
         noteId = ?, parentId = ?, sortOrder = ?, projectId = ?, status = ?, repeatRule = ?, repeatInterval = ?, repeatEndDate = ?, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(title, isCompleted, priority, dueDate, dueAt, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, id);
+    `).run(title, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, sortOrder, projectId, status, repeatRule, repeatInterval, repeatEndDate, id);
 
     let generatedTask = null;
     // Generate next repeated task when marking as done via PUT
@@ -444,7 +453,7 @@ function generateNextRepeatedTask(db: any, task: any): any {
   const newId = crypto.randomUUID();
   const groupId = task.repeatGroupId || task.id;
   db.prepare(`
-    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
+    INSERT INTO tasks (id, userId, workspaceId, title, isCompleted, priority, dueDate, dueAt, startDate, noteId, parentId, projectId, status, repeatRule, repeatInterval, repeatEndDate, repeatGroupId, repeatGeneratedFromId)
     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, 'todo', ?, ?, ?, ?, ?)
   `).run(newId, task.userId, task.workspaceId, task.title, task.priority, nextDueDate, nextDueAt, task.noteId, task.parentId, task.projectId, task.repeatRule, task.repeatInterval, task.repeatEndDate, groupId, task.id);
 

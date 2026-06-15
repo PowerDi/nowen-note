@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+﻿import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Flag, Trash2, X, Bell, BellOff, CheckCircle2, Circle, Plus, Clock, Repeat } from "lucide-react";
 import { format, parseISO } from "date-fns";
@@ -67,6 +67,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   const [priority, setPriority] = useState<TaskPriority>(task.priority);
   const [dueDate, setDueDate] = useState(task.dueDate || "");
   const [dueAt, setDueAt] = useState(task.dueAt || "");
+  const [startDate, setStartDate] = useState(task.startDate || "");
   const [repeatRule, setRepeatRule] = useState<"none" | "daily" | "weekly" | "monthly" | "yearly">(task.repeatRule || "none");
   const [repeatInterval, setRepeatInterval] = useState(task.repeatInterval || 1);
   const [repeatEndDate, setRepeatEndDate] = useState(task.repeatEndDate || "");
@@ -88,6 +89,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
     setPriority(task.priority);
     setDueDate(task.dueDate || "");
     setDueAt(task.dueAt || "");
+    setStartDate(task.startDate || "");
     setRepeatRule(task.repeatRule || "none");
     setRepeatInterval(task.repeatInterval || 1);
     setRepeatEndDate(task.repeatEndDate || "");
@@ -109,7 +111,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
   useEffect(() => { loadReminders(); }, [loadReminders]);
 
   const handleSave = () => {
-    onUpdate(task.id, { title: title.trim() || task.title, priority, dueDate: dueDate || null, dueAt: dueAt || null });
+    onUpdate(task.id, { title: title.trim() || task.title, priority, dueDate: dueDate || null, dueAt: dueAt || null, startDate: startDate || null });
   };
 
   const hasRichTokens = parseTaskTitle(task.title).some((tok) => tok.kind !== "text");
@@ -227,6 +229,17 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
               );
             })}
           </div>
+        </div>
+
+        {/* Start Date */}
+        <div>
+          <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.startDate")}</label>
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => { setStartDate(e.target.value); onUpdate(task.id, { startDate: e.target.value || null }); }}
+            className="w-full px-3 py-2 rounded-md bg-app-bg border border-app-border text-sm text-tx-primary focus:outline-none focus:border-accent-primary transition-colors"
+          />
         </div>
 
         {/* Due Date */}

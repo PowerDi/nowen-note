@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+﻿import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
 import {
   Calendar, ListTodo,
   CalendarDays, AlertTriangle, CheckCheck, Inbox,
   Search, X as XIcon, GripVertical,
   CheckSquare, Trash2, Square,
-  LayoutGrid, LayoutList, Calendar as CalendarIcon, FolderOpen, Plus, ChevronRight,
+  LayoutGrid, LayoutList, Calendar as CalendarIcon, BarChart3, FolderOpen, Plus, ChevronRight,
   MoreHorizontal, Trash2 as TrashIcon, FileText,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -31,6 +31,7 @@ import { useReminderNotifier } from "./tasks/useReminderNotifier";
 import { useTaskProjects } from "./tasks/useTaskProjects";
 import { TaskBoardView } from "./tasks/TaskBoardView";
 import { TaskCalendarView } from "./tasks/TaskCalendarView";
+import TaskGanttView from "./tasks/TaskGanttView";
 import { moveTaskToDate } from "./tasks/taskDateUtils";
 import { TaskTemplatePicker } from "./tasks/TaskTemplatePicker";
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
@@ -74,7 +75,7 @@ export default function TaskCenter() {
   } = useTaskProjects();
 
   // Phase 4: view mode (list / board)
-  type ViewMode = "list" | "board" | "calendar";
+  type ViewMode = "list" | "board" | "calendar" | "timeline";
   const [viewMode, setViewMode] = useState<ViewMode>("list");
 
   // Phase 4: new project dialog
@@ -322,6 +323,16 @@ export default function TaskCenter() {
       const s = await api.getTaskStats();
       setStats(s);
       refreshCounts();
+    } catch { loadTasks(); }
+  };
+
+  // === Gantt drag: move task date range ===
+  const handleUpdateTaskDateRange = async (taskId: string, patch: { startDate?: string | null; dueDate?: string | null }) => {
+    // Optimistic update
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...patch } : t)));
+    try {
+      await api.updateTask(taskId, patch);
+      await loadTasks();
     } catch { loadTasks(); }
   };
 
@@ -636,6 +647,13 @@ export default function TaskCenter() {
               >
                 <CalendarIcon size={14} />
               </button>
+              <button
+                onClick={() => setViewMode("timeline")}
+                className={cn("p-1.5 transition-colors", viewMode === "timeline" ? "bg-accent-primary/10 text-accent-primary" : "text-tx-tertiary hover:text-tx-secondary")}
+                title={t("tasks.timelineView")}
+              >
+                <BarChart3 size={14} />
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -725,6 +743,13 @@ export default function TaskCenter() {
             tasks={displayTasks}
             onSelect={(task) => setSelectedTaskId(task.id)}
             onMoveTaskDate={handleMoveTaskDate}
+          />
+        ) : viewMode === "timeline" && !isLoading ? (
+          <TaskGanttView
+            tasks={displayTasks}
+            projects={projects}
+            onSelect={(task) => setSelectedTaskId(task.id)}
+            onUpdateTaskDateRange={handleUpdateTaskDateRange}
           />
         ) : (
         <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-6 py-3">
