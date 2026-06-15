@@ -506,6 +506,8 @@ tasks.delete("/:id", (c) => {
     return c.json({ error: "无权删除该任务", code: "FORBIDDEN" }, 403);
   }
 
+  // Clean up dependencies referencing this task
+  db.prepare("DELETE FROM task_dependencies WHERE predecessorTaskId = ? OR successorTaskId = ?").run(id, id);
   db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
   return c.json({ success: true });
 });
@@ -561,6 +563,10 @@ tasks.post("/batch", async (c) => {
 
     return c.json({ success: true, affected: toComplete.length, generatedCount });
   } else {
+    // Clean up dependencies referencing deleted tasks
+    for (const taskId of allowedIds) {
+      db.prepare("DELETE FROM task_dependencies WHERE predecessorTaskId = ? OR successorTaskId = ?").run(taskId, taskId);
+    }
     db.prepare("DELETE FROM tasks WHERE id IN (" + ph + ")").run(...allowedIds);
     return c.json({ success: true, affected: allowedIds.length });
   }

@@ -15,7 +15,7 @@ import { TitleView } from "./taskTitleTokens";
 import { DateBadge } from "./DateBadge";
 import { SubtaskInput } from "./SubtaskInput";
 
-/* ===== ���������� ===== */
+/* ===== Tree task row ===== */
 export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
   task: TaskTreeNode;
   depth: number;
@@ -73,7 +73,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         )}
         onClick={() => onSelect(task)}
       >
-        {/* չ��/�۵���ͷ */}
+        {/* Expand/collapse arrow */}
         {hasChildren ? (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleExpand(task.id); }}
@@ -100,7 +100,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           )}
         </button>
 
-        {/* Title + Ԫ��Ϣ */}
+        {/* Title + metadata */}
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
           <span
             className={cn(
@@ -136,9 +136,9 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
           )}
         </div>
 
-        {/* �Ҳ� badges */}
+        {/* Right side badges */}
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-          {/* ����������ť �� hover ʱ��ʾ */}
+          {/* Action buttons (visible on hover) */}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -178,7 +178,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         </div>
       </motion.div>
 
-      {/* Inline ����������� */}
+      {/* Inline subtask input */}
       <AnimatePresence>
         {showSubtaskInput && (
           <motion.div

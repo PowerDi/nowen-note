@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { wouldCreateCycle, buildTaskRowIndex, getDependencyLinePoints, getBlockingDependencies, isTaskBlockedByDependency, getDependencyScheduleWarnings } from "../taskDependencyUtils";
+import { resizeTaskDateRange } from "../taskGanttUtils";
 import type { TaskDependency } from "../../../types";
 
 function dep(pre: string, suc: string): TaskDependency {
@@ -191,6 +192,41 @@ describe("getDependencyScheduleWarnings", () => {
     ] as any;
     const deps = [dep("A", "B")];
     expect(getDependencyScheduleWarnings("B", deps, tasks)).toBeNull();
+  });
+});
+
+describe("regression: dependency lifecycle", () => {
+  it("blocked status clears when predecessor completed", () => {
+    const incomplete = [{ id: "A", isCompleted: 0 }] as any;
+    const complete = [{ id: "A", isCompleted: 1 }] as any;
+    const deps = [dep("A", "B")];
+
+    expect(isTaskBlockedByDependency("B", deps, incomplete)).toBe(true);
+    expect(isTaskBlockedByDependency("B", deps, complete)).toBe(false);
+  });
+
+  it("schedule warning does not auto-modify task data", () => {
+    const tasks = [
+      { id: "A", isCompleted: 0, dueDate: "2026-06-20" },
+      { id: "B", isCompleted: 0, startDate: "2026-06-18", dueDate: "2026-06-22" },
+    ] as any;
+    const deps = [dep("A", "B")];
+    const before = JSON.stringify(tasks);
+    getDependencyScheduleWarnings("B", deps, tasks);
+    expect(JSON.stringify(tasks)).toBe(before);
+  });
+
+  it("dueDate-only single day task resize works", () => {
+    const task = { id: "1", dueDate: "2026-06-15" } as any;
+    const result = resizeTaskDateRange(task, "end", "2026-06-20");
+    expect(result).not.toBeNull();
+    expect(result!.dueDate).toBe("2026-06-20");
+  });
+
+  it("empty dependencies never block", () => {
+    expect(isTaskBlockedByDependency("A", [], [{ id: "A", isCompleted: 0 }] as any)).toBe(false);
+    expect(getBlockingDependencies("A", [], [{ id: "A", isCompleted: 0 }] as any)).toEqual([]);
+    expect(getDependencyScheduleWarnings("A", [], [{ id: "A", isCompleted: 0, startDate: "2026-06-10" }] as any)).toBeNull();
   });
 });
 

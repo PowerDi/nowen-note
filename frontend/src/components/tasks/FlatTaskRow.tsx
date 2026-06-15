@@ -13,8 +13,8 @@ import { isRepeatingTask } from "./taskRepeatUtils";
 import { SubtaskInput } from "./SubtaskInput";
 
 /**
- * �?allTasks 中向上遍�?parentId 构建父任务路径�?
- * 最多展�?maxDepth 层，超出�?"..." 省略�?
+ *  allTasks 中向上遍历 parentId 构建父任务路径).
+ * 最多展示maxDepth 层，超出时"..." 省略).
  */
 function buildParentPath(taskId: string, allTasks: Task[], maxDepth = 3): Task[] {
   const map = new Map(allTasks.map((t) => [t.id, t]));
@@ -34,10 +34,10 @@ function buildParentPath(taskId: string, allTasks: Task[], maxDepth = 3): Task[]
   return path;
 }
 
-/** 平铺模式任务行（过滤模式使用�?*/
+/** Flat task row (used in filtered mode) */
 export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
   task: Task;
-  /** 所有任务（用于构建父任务路�?breadcrumb�?*/
+  /** All tasks (for building parent task path / breadcrumb) */
   allTasks?: Task[];
   onToggle: (id: string) => void;
   onSelect: (task: Task) => void;
@@ -59,7 +59,7 @@ export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
   const showCreator =
     !!task.creatorName && getCurrentWorkspace() !== "personal";
 
-  // 父任务路�?
+  // Parent task breadcrumb path
   const parentPath = useMemo(() => {
     if (!allTasks || !task.parentId) return [];
     return buildParentPath(task.id, allTasks);
@@ -93,7 +93,7 @@ export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
         </button>
 
         <div className="flex-1 min-w-0 flex flex-col gap-0.5">
-          {/* 父任务路�?breadcrumb */}
+          {/* Parent task breadcrumb */}
           {parentPath.length > 0 && (
             <div className="flex items-center gap-1 text-[10px] text-tx-tertiary min-w-0 mb-0.5">
               {parentPath.map((p, i) => (
@@ -149,7 +149,7 @@ export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
         </div>
 
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
-          {/* 添加子任务按�?*/}
+          {/* Add subtask button */}
           {onCreateChild && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowSubtaskInput(true); }}
