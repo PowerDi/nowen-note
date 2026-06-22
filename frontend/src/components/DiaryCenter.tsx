@@ -1112,17 +1112,12 @@ function DiaryEditor({
     async (files: File[]) => {
       if (!files.length) return;
       const current = imagesRef.current;
-      if (current.some((x) => x.type === "video")) {
-        toast.error(t("diary.media.noMixImageVideo"));
-        return;
-      }
-      const remaining = MAX_IMAGES_PER_DIARY - current.filter((x) => x.type === "image").length;
-      if (remaining <= 0) return;
+      const currentHasImages = current.some((x) => x.type === "image");
+      const currentHasVideo = current.some((x) => x.type === "video");
 
-      const accepted: File[] = [];
+      const accepted: Array<{ file: File; type: "image" | "video" }> = [];
       const rejected: { name: string; reason: string }[] = [];
       for (const f of files) {
-        if (accepted.length >= remaining) break;
         const mime = (f.type || "").toLowerCase();
         let mediaType: "image" | "video" | null = null;
         if (ALLOWED_IMAGE_MIMES.has(mime)) mediaType = "image";
@@ -1203,7 +1198,7 @@ function DiaryEditor({
             );
           })
           .catch((err) => {
-            console.error("Diary image upload failed:", err);
+            console.error("Diary media upload failed:", err);
             setImages((prev) =>
               prev.map((p) =>
                 p.localKey === it.localKey
