@@ -1701,7 +1701,11 @@
     "filterMoodAll": "All moods",
     "searchPlaceholder": "Search posts",
     "emptySearch": "No matching posts",
-    "emptySearchHint": "Try different keywords"
+    "emptySearchHint": "Try different keywords",
+    "draftRestored": "Restored your unsent draft",
+    "draftClear": "Clear draft",
+    "draftDismiss": "Dismiss",
+    "draftExpired": "Draft expired and was cleared"
   },
   "download": {
     "title": "Downloads",

@@ -23,6 +23,13 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/lib/toast";
+import {
+  loadDiaryDraft,
+  saveDiaryDraft,
+  clearDiaryDraft,
+  isDiaryDraftExpired,
+  type DiaryDraftMedia,
+} from "@/lib/diaryDraft";
 
 // 心情选项
 const MOODS = [
@@ -143,6 +150,63 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const [pendingMedia, setPendingMedia] = useState<PendingMedia[]>([]);
   const pendingMediaRef = useRef<PendingMedia[]>([]);
   pendingMediaRef.current = pendingMedia;
+
+  // 草稿恢复：mount 时读取当前 workspace 草稿
+  const [draftRestored, setDraftRestored] = useState(false);
+  useEffect(() => {
+    const draft = loadDiaryDraft();
+    if (!draft) return;
+    if (isDiaryDraftExpired(draft)) {
+      clearDiaryDraft();
+      toast.info(t("diary.draftExpired"));
+      return;
+    }
+    if (draft.text) setText(draft.text);
+    if (draft.mood) setMood(draft.mood);
+    if (draft.media.length > 0) {
+      setPendingMedia(
+        draft.media.map((m) => ({
+          localKey: m.id,
+          id: m.id,
+          type: m.type,
+          mimeType: m.mimeType,
+          previewUrl: api.diaryImages.urlFor(m.id),
+          status: "ready" as const,
+        })),
+      );
+    }
+    if (draft.text || draft.mood || draft.media.length > 0) {
+      setDraftRestored(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 草稿自动保存：text / mood / ready media 变化时保存（300ms 防抖）
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => {
+      const readyMedia: DiaryDraftMedia[] = pendingMedia
+        .filter((p) => p.status === "ready" && p.id)
+        .map((p) => ({ id: p.id!, type: p.type, mimeType: p.mimeType }));
+      if (!text.trim() && !mood && readyMedia.length === 0) {
+        clearDiaryDraft();
+      } else {
+        saveDiaryDraft({
+          version: 1,
+          workspaceId: getCurrentWorkspace() || "personal",
+          text: text.trim(),
+          mood,
+          media: readyMedia,
+          updatedAt: Date.now(),
+        });
+      }
+    }, 300);
+    return () => {
+      if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, mood, pendingMedia]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
@@ -402,6 +466,8 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       setMood("");
       setShowMoods(false);
       setPendingMedia([]);
+      clearDiaryDraft();
+      setDraftRestored(false);
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       onPost();
     } catch (e) {
@@ -438,6 +504,30 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
     >
       {/* 输入区域 */}
       <div className="p-4 pb-2">
+        {/* 草稿恢复提示 */}
+        {draftRestored && (
+          <div className="flex items-center gap-2 px-3 py-1.5 mb-2 rounded-lg bg-accent-primary/5 border border-accent-primary/20 text-[11px] text-accent-primary">
+            <span>{t("diary.draftRestored")}</span>
+            <button
+              onClick={() => {
+                clearDiaryDraft();
+                setText("");
+                setMood("");
+                setPendingMedia([]);
+                setDraftRestored(false);
+              }}
+              className="ml-auto px-2 py-0.5 rounded text-[10px] hover:bg-accent-primary/10"
+            >
+              {t("diary.draftClear")}
+            </button>
+            <button
+              onClick={() => setDraftRestored(false)}
+              className="px-2 py-0.5 rounded text-[10px] hover:bg-accent-primary/10"
+            >
+              {t("diary.draftDismiss")}
+            </button>
+          </div>
+        )}
         <textarea
           ref={textareaRef}
           value={text}
@@ -2092,7 +2182,7 @@ export default function DiaryCenter() {
           </div>
 
           {/* 发布框 */}
-          <ComposeBox onPost={handlePost} />
+          <ComposeBox key={getCurrentWorkspace() || "personal"} onPost={handlePost} />
 
           {/* 时间线 */}
           {loading ? (

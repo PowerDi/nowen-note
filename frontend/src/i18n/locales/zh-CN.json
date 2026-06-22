@@ -1870,7 +1870,11 @@
     "filterMoodAll": "全部心情",
     "searchPlaceholder": "搜索说说",
     "emptySearch": "没有匹配的说说",
-    "emptySearchHint": "试试其他关键词"
+    "emptySearchHint": "试试其他关键词",
+    "draftRestored": "已恢复上次未发布的草稿",
+    "draftClear": "清空草稿",
+    "draftDismiss": "关闭",
+    "draftExpired": "草稿已过期，已自动清理"
   },
   "download": {
     "title": "下载客户端",
