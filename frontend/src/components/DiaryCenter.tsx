@@ -1802,6 +1802,8 @@ export default function DiaryCenter() {
   const [stats, setStats] = useState<DiaryStats | null>(null);
   const [mediaFilter, setMediaFilter] = useState<string>("all");
   const [moodFilter, setMoodFilter] = useState<string>("");
+  const [showMoodFilter, setShowMoodFilter] = useState(false);
+  const moodFilterRef = useRef<HTMLDivElement>(null);
   const [searchText, setSearchText] = useState("");
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1863,6 +1865,18 @@ export default function DiaryCenter() {
       /* ignore */
     }
   }, [activeFilters]);
+
+  // 心情筛选面板点击外部关闭
+  useEffect(() => {
+    if (!showMoodFilter) return;
+    const handler = (e: MouseEvent) => {
+      if (moodFilterRef.current && !moodFilterRef.current.contains(e.target as Node)) {
+        setShowMoodFilter(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showMoodFilter]);
 
   // 搜索防抖
   useEffect(() => {
@@ -1943,7 +1957,7 @@ export default function DiaryCenter() {
   );
 
   // 当前是否处于"非全部"筛选 —— 用于空状态文案
-  const isFiltering = preset !== "all";
+  const isFiltering = preset !== "all" || mediaFilter !== "all" || !!moodFilter || !!debouncedSearchText.trim();
 
   // 按日期分组
   const groupedItems = groupByDate(items, t);
@@ -1997,9 +2011,9 @@ export default function DiaryCenter() {
             ))}
 
             {/* 心情筛选 */}
-            <div className="relative">
+            <div className="relative" ref={moodFilterRef}>
               <button
-                onClick={() => setMoodFilter(moodFilter ? "" : MOODS[0].value)}
+                onClick={() => setShowMoodFilter(!showMoodFilter)}
                 className={cn(
                   "flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all",
                   moodFilter
@@ -2013,7 +2027,7 @@ export default function DiaryCenter() {
                     <X
                       size={11}
                       className="ml-0.5 hover:text-accent-primary"
-                      onClick={(e) => { e.stopPropagation(); setMoodFilter(""); }}
+                      onClick={(e) => { e.stopPropagation(); setMoodFilter(""); setShowMoodFilter(false); }}
                     />
                   </>
                 ) : (
@@ -2023,13 +2037,24 @@ export default function DiaryCenter() {
                   </>
                 )}
               </button>
-              {moodFilter && (
+              {showMoodFilter && (
                 <div className="absolute top-full left-0 mt-1 p-2 bg-app-elevated rounded-xl border border-app-border shadow-lg z-20 w-[200px]">
                   <div className="grid grid-cols-6 gap-1">
+                    <button
+                      onClick={() => { setMoodFilter(""); setShowMoodFilter(false); }}
+                      className={cn(
+                        "col-span-6 mb-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all",
+                        !moodFilter
+                          ? "bg-accent-primary/15 text-accent-primary"
+                          : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
+                      )}
+                    >
+                      {t("diary.filterMoodAll")}
+                    </button>
                     {MOODS.map(({ value: v, emoji }) => (
                       <button
                         key={v}
-                        onClick={() => setMoodFilter(moodFilter === v ? "" : v)}
+                        onClick={() => { setMoodFilter(v); setShowMoodFilter(false); }}
                         className={cn(
                           "w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-all",
                           moodFilter === v
