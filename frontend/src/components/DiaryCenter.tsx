@@ -149,6 +149,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const recordInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const recordInputRef = useRef<HTMLInputElement>(null);
   // dragOver/Leave 计数：浏览器会在子元素切换时狂抛 enter/leave 事件，
   // 直接 setState 会闪烁。用计数器保证只有真正离开容器才隐藏高亮。
   const dragCounterRef = useRef(0);
@@ -1107,7 +1110,7 @@ function DiaryEditor({
     };
   }, []);
 
-  // 添加新图（沿用 ComposeBox 的校验 + 并发上传逻辑）
+  // 添加新媒体（图片/视频，与 ComposeBox 逻辑对齐）
   const addFiles = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
@@ -1124,39 +1127,73 @@ function DiaryEditor({
       for (const f of files) {
         if (accepted.length >= remaining) break;
         const mime = (f.type || "").toLowerCase();
-        if (!ALLOWED_IMAGE_MIMES.has(mime)) {
-          rejected.push({ name: f.name || "image", reason: "type" });
+        let mediaType: "image" | "video" | null = null;
+        if (ALLOWED_IMAGE_MIMES.has(mime)) mediaType = "image";
+        else if (ALLOWED_VIDEO_MIMES.has(mime)) mediaType = "video";
+        if (!mediaType) {
+          rejected.push({ name: f.name || "file", reason: "type" });
           continue;
         }
-        if (f.size > MAX_DIARY_IMAGE_SIZE) {
-          rejected.push({ name: f.name || "image", reason: "size" });
+        if (mediaType === "image" && f.size > MAX_DIARY_IMAGE_SIZE) {
+          rejected.push({ name: f.name || "image", reason: "image-size" });
           continue;
         }
-        accepted.push(f);
+        if (mediaType === "video" && f.size > MAX_DIARY_VIDEO_SIZE) {
+          rejected.push({ name: f.name || "video", reason: "video-size" });
+          continue;
+        }
+        // 混发校验
+        if (mediaType === "video" && currentHasImages) {
+          rejected.push({ name: f.name || "video", reason: "mix" });
+          continue;
+        }
+        if (mediaType === "image" && currentHasVideo) {
+          rejected.push({ name: f.name || "image", reason: "mix" });
+          continue;
+        }
+        // 数量校验
+        if (mediaType === "video") {
+          const videoCount = current.filter((x) => x.type === "video").length + accepted.filter((x) => x.type === "video").length;
+          if (videoCount >= MAX_VIDEOS_PER_DIARY) {
+            rejected.push({ name: f.name || "video", reason: "max-videos" });
+            continue;
+          }
+        }
+        if (mediaType === "image") {
+          const imageCount = current.filter((x) => x.type === "image").length + accepted.filter((x) => x.type === "image").length;
+          if (imageCount >= MAX_IMAGES_PER_DIARY) {
+            rejected.push({ name: f.name || "image", reason: "max-images" });
+            continue;
+          }
+        }
+        accepted.push({ file: f, type: mediaType });
       }
       if (rejected.length) {
         for (const r of rejected) {
-          toast.error(
-            r.reason === "size"
-              ? t("diary.imageTooLarge").replace("{{name}}", r.name)
-              : t("diary.imageTypeUnsupported").replace("{{name}}", r.name),
-          );
+          const msg =
+            r.reason === "image-size" ? t("diary.media.imageTooLarge").replace("{{name}}", r.name) :
+            r.reason === "video-size" ? t("diary.media.videoTooLarge").replace("{{name}}", r.name) :
+            r.reason === "mix" ? t("diary.media.noMixImageVideo") :
+            r.reason === "max-images" ? t("diary.media.maxImages").replace("{{n}}", String(MAX_IMAGES_PER_DIARY)) :
+            r.reason === "max-videos" ? t("diary.media.maxVideos").replace("{{n}}", String(MAX_VIDEOS_PER_DIARY)) :
+            t("diary.media.unsupportedType").replace("{{name}}", r.name);
+          toast.error(msg);
         }
       }
       if (!accepted.length) return;
 
-      const newItems: PendingMedia[] = accepted.map((f) => ({
+      const newItems: PendingMedia[] = accepted.map(({ file: f, type: mediaType }) => ({
         localKey: crypto.randomUUID(),
         id: null,
-        type: "image",
+        type: mediaType,
         previewUrl: URL.createObjectURL(f),
         mimeType: f.type,
-        status: "uploading",
+        status: "uploading" as const,
       }));
       setImages((prev) => [...prev, ...newItems]);
 
       newItems.forEach((it, idx) => {
-        const file = accepted[idx];
+        const file = accepted[idx].file;
         api.diaryImages
           .upload(file)
           .then((res) => {
@@ -1251,6 +1288,8 @@ function DiaryEditor({
   const selectedMoodEmoji = getMoodEmoji(mood);
   const editorHasVideo = images.some((p) => p.type === "video");
   const remainingSlots = editorHasVideo ? 0 : MAX_IMAGES_PER_DIARY - images.filter((p) => p.type === "image").length;
+  const editorHasImages = images.some((p) => p.type === "image");
+  const remainingVideoSlots = editorHasImages ? 0 : MAX_VIDEOS_PER_DIARY - images.filter((p) => p.type === "video").length;
 
   return (
     <motion.div
@@ -1401,11 +1440,8 @@ function DiaryEditor({
             )}
             title={
               remainingSlots <= 0
-                ? t("diary.imageLimitReached").replace(
-                    "{{n}}",
-                    String(MAX_IMAGES_PER_DIARY),
-                  )
-                : t("diary.addImage")
+                ? t("diary.media.maxImages").replace("{{n}}", String(MAX_IMAGES_PER_DIARY))
+                : t("diary.media.image")
             }
           >
             <ImagePlus size={15} />
@@ -1416,11 +1452,83 @@ function DiaryEditor({
               </span>
             )}
           </button>
+
+          {/* 拍照 */}
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={remainingSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.camera")}
+          >
+            <Camera size={15} />
+            <span className="hidden sm:inline">{t("diary.media.camera")}</span>
+          </button>
+
+          {/* 视频 */}
+          <button
+            onClick={() => videoInputRef.current?.click()}
+            disabled={remainingVideoSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingVideoSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.video")}
+          >
+            <Video size={15} />
+            <span className="hidden sm:inline">{t("diary.media.video")}</span>
+          </button>
+
+          {/* 录像 */}
+          <button
+            onClick={() => recordInputRef.current?.click()}
+            disabled={remainingVideoSlots <= 0}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+              remainingVideoSlots <= 0
+                ? "text-tx-tertiary/50 cursor-not-allowed"
+                : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+            )}
+            title={t("diary.media.record")}
+          >
+            <Video size={15} />
+            <span className="hidden sm:inline">{t("diary.media.record")}</span>
+          </button>
+
           <input
             ref={fileInputRef}
             type="file"
             accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
             multiple
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept="video/mp4,video/webm,video/quicktime"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <input
+            ref={recordInputRef}
+            type="file"
+            accept="video/*"
+            capture="environment"
             className="hidden"
             onChange={handleFileChange}
           />
