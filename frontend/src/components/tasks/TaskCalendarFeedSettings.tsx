@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Calendar, Copy, RefreshCw, Trash2, ChevronDown, ChevronUp, Loader2, X } from "lucide-react";
+import { Calendar, Copy, RefreshCw, Trash2, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { api, getBaseUrl } from "@/lib/api";
@@ -115,6 +115,16 @@ export function TaskCalendarFeedSettings() {
 
   useEffect(() => { loadFeed(); }, [loadFeed]);
 
+  // Esc 关闭弹窗
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
+
   const handleCreate = useCallback(async () => {
     try {
       setActionLoading("create");
@@ -165,25 +175,27 @@ export function TaskCalendarFeedSettings() {
     }
   }, [loadFeed, text]);
 
+  const handleCopy = useCallback(async () => {
+    if (!feed?.token) return;
+    const baseUrl = getBaseUrl().replace(/\/api$/, "");
+    const url = `${baseUrl}/api/task-calendar/feed/${feed.token}.ics`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(text.copied);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      toast.success(text.copied);
+    }
+  }, [feed?.token, text]);
+
   const icsUrl = feed?.token
     ? `${getBaseUrl().replace(/\/api$/, "")}/api/task-calendar/feed/${feed.token}.ics`
     : "";
-
-  const handleCopy = useCallback(async () => {
-    if (!icsUrl) return;
-    try {
-      await navigator.clipboard.writeText(icsUrl);
-      toast.success(text.copied);
-    } catch {
-      const input = document.createElement("textarea");
-      input.value = icsUrl;
-      document.body.appendChild(input);
-      input.select();
-      document.execCommand("copy");
-      document.body.removeChild(input);
-      toast.success(text.copied);
-    }
-  }, [icsUrl, text]);
 
   if (loading) {
     return (
@@ -198,6 +210,7 @@ export function TaskCalendarFeedSettings() {
     );
   }
 
+  // 未启用状态：显示启用按钮
   if (!feed) {
     return (
       <button
@@ -216,143 +229,166 @@ export function TaskCalendarFeedSettings() {
     );
   }
 
+  // 已启用状态：入口按钮 + fixed modal
   return (
-    <div className="relative">
+    <>
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => setExpanded(true)}
         className={cn(
           "flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
-          feed.enabled
-            ? "text-accent-primary bg-accent-primary/5 hover:bg-accent-primary/10"
-            : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+          expanded
+            ? "text-accent-primary bg-accent-primary/10"
+            : feed.enabled
+              ? "text-accent-primary bg-accent-primary/5 hover:bg-accent-primary/10"
+              : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
         )}
       >
         <Calendar size={13} />
         {text.title}
-        {expanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
       </button>
 
       {expanded && (
-        <div className="absolute right-0 top-full mt-1 w-72 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50 p-3 space-y-3">
-          <div className="flex items-center justify-between">
-            <h4 className="text-xs font-medium text-tx-primary">{text.title}</h4>
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="text-tx-tertiary hover:text-tx-secondary"
-              aria-label="Close"
-            >
-              <X size={14} />
-            </button>
-          </div>
-
-          <p className="text-[10px] text-tx-tertiary leading-relaxed">
-            {text.description}
-          </p>
-
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className={cn("w-2 h-2 rounded-full", feed.enabled ? "bg-green-500" : "bg-gray-400")} />
-            <span className="text-tx-secondary">
-              {feed.enabled ? text.active : text.disabled}
-            </span>
-            {feed.lastAccessedAt && (
-              <span className="text-tx-tertiary ml-auto">
-                {text.lastAccess}: {new Date(feed.lastAccessedAt).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <label className="block text-[10px] text-tx-tertiary">{text.link}</label>
-            <div className="flex gap-1">
-              <input
-                type="text"
-                readOnly
-                value={icsUrl}
-                className="flex-1 px-2 py-1 text-[10px] bg-app-bg rounded border border-app-border text-tx-secondary truncate"
-              />
+        <div className="fixed inset-0 z-[120] flex items-center justify-center px-4 py-6">
+          {/* 遮罩 */}
+          <button
+            type="button"
+            aria-label="Close"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[1px]"
+            onClick={() => setExpanded(false)}
+          />
+          {/* 弹窗卡片 */}
+          <div
+            className="relative w-full max-w-sm max-h-[calc(100vh-48px)] overflow-y-auto rounded-2xl border border-app-border bg-app-elevated shadow-2xl p-4 space-y-3"
+            style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+          >
+            {/* 标题栏 */}
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-medium text-tx-primary">{text.title}</h4>
               <button
                 type="button"
-                onClick={handleCopy}
-                className="px-2 py-1 text-[10px] text-tx-tertiary bg-app-hover rounded hover:bg-app-hover/80 transition-colors"
-                title={text.copied}
+                onClick={() => setExpanded(false)}
+                className="p-1 rounded-md text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover transition-colors"
+                aria-label="Close"
               >
-                <Copy size={11} />
+                <X size={16} />
               </button>
             </div>
-          </div>
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={feed.includeCompleted}
-              onChange={(e) => handleUpdate({ includeCompleted: e.target.checked })}
-              disabled={actionLoading === "update"}
-              className="rounded border-app-border text-accent-primary focus:ring-accent-primary/30"
-            />
-            <span className="text-[11px] text-tx-secondary">{text.includeCompleted}</span>
-          </label>
+            {/* 说明 */}
+            <p className="text-xs text-tx-tertiary leading-relaxed">
+              {text.description}
+            </p>
 
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={feed.includeDescription}
-              onChange={(e) => handleUpdate({ includeDescription: e.target.checked })}
-              disabled={actionLoading === "update"}
-              className="rounded border-app-border text-accent-primary focus:ring-accent-primary/30"
-            />
-            <span className="text-[11px] text-tx-secondary">{text.includeDescription}</span>
-          </label>
-
-          <div className="space-y-1">
-            <label className="block text-[10px] text-tx-tertiary">{text.defaultAlarm}</label>
-            <select
-              value={feed.defaultAlarmMinutes}
-              onChange={(e) => handleUpdate({ defaultAlarmMinutes: Number(e.target.value) })}
-              disabled={actionLoading === "update"}
-              className="w-full px-2 py-1 text-[11px] bg-app-bg rounded border border-app-border text-tx-primary focus:ring-accent-primary/30"
-            >
-              {alarmOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex gap-2 pt-1">
-            <button
-              type="button"
-              onClick={handleRotate}
-              disabled={actionLoading === "rotate"}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] text-tx-tertiary hover:text-amber-600 bg-app-hover rounded hover:bg-amber-50 transition-colors disabled:opacity-50"
-            >
-              {actionLoading === "rotate" ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : (
-                <RefreshCw size={11} />
+            {/* 状态 */}
+            <div className="flex items-center gap-2 text-xs">
+              <span className={cn("w-2 h-2 rounded-full", feed.enabled ? "bg-green-500" : "bg-gray-400")} />
+              <span className="text-tx-secondary">
+                {feed.enabled ? text.active : text.disabled}
+              </span>
+              {feed.lastAccessedAt && (
+                <span className="text-tx-tertiary ml-auto">
+                  {text.lastAccess}: {new Date(feed.lastAccessedAt).toLocaleDateString()}
+                </span>
               )}
-              {text.rotate}
-            </button>
-            <button
-              type="button"
-              onClick={handleDisable}
-              disabled={actionLoading === "disable"}
-              className="flex items-center gap-1 px-2 py-1 text-[10px] text-tx-tertiary hover:text-red-600 bg-app-hover rounded hover:bg-red-50 transition-colors disabled:opacity-50 ml-auto"
-            >
-              {actionLoading === "disable" ? (
-                <Loader2 size={11} className="animate-spin" />
-              ) : (
-                <Trash2 size={11} />
-              )}
-              {text.disable}
-            </button>
-          </div>
+            </div>
 
-          <p className="text-[9px] text-tx-tertiary leading-relaxed">
-            {text.hint}
-          </p>
+            {/* 订阅链接 */}
+            <div className="space-y-1">
+              <label className="block text-xs text-tx-tertiary">{text.link}</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={icsUrl}
+                  className="flex-1 px-2.5 py-1.5 text-xs bg-app-bg rounded-lg border border-app-border text-tx-secondary truncate"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-tx-tertiary bg-app-hover rounded-lg hover:bg-app-hover/80 transition-colors"
+                >
+                  <Copy size={13} />
+                </button>
+              </div>
+            </div>
+
+            {/* 导出已完成待办 */}
+            <label className="flex items-center gap-2.5 cursor-pointer min-h-[32px]">
+              <input
+                type="checkbox"
+                checked={feed.includeCompleted}
+                onChange={(e) => handleUpdate({ includeCompleted: e.target.checked })}
+                disabled={actionLoading === "update"}
+                className="rounded border-app-border text-accent-primary focus:ring-accent-primary/30"
+              />
+              <span className="text-xs text-tx-secondary">{text.includeCompleted}</span>
+            </label>
+
+            {/* 导出描述 */}
+            <label className="flex items-center gap-2.5 cursor-pointer min-h-[32px]">
+              <input
+                type="checkbox"
+                checked={feed.includeDescription}
+                onChange={(e) => handleUpdate({ includeDescription: e.target.checked })}
+                disabled={actionLoading === "update"}
+                className="rounded border-app-border text-accent-primary focus:ring-accent-primary/30"
+              />
+              <span className="text-xs text-tx-secondary">{text.includeDescription}</span>
+            </label>
+
+            {/* 默认提醒时间 */}
+            <div className="space-y-1">
+              <label className="block text-xs text-tx-tertiary">{text.defaultAlarm}</label>
+              <select
+                value={feed.defaultAlarmMinutes}
+                onChange={(e) => handleUpdate({ defaultAlarmMinutes: Number(e.target.value) })}
+                disabled={actionLoading === "update"}
+                className="w-full px-2.5 py-1.5 text-xs bg-app-bg rounded-lg border border-app-border text-tx-primary focus:ring-accent-primary/30"
+              >
+                {alarmOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 操作按钮 */}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleRotate}
+                disabled={actionLoading === "rotate"}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tx-tertiary hover:text-amber-600 bg-app-hover rounded-lg hover:bg-amber-50 transition-colors disabled:opacity-50"
+              >
+                {actionLoading === "rotate" ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={13} />
+                )}
+                {text.rotate}
+              </button>
+              <button
+                type="button"
+                onClick={handleDisable}
+                disabled={actionLoading === "disable"}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tx-tertiary hover:text-red-600 bg-app-hover rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50 ml-auto"
+              >
+                {actionLoading === "disable" ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Trash2 size={13} />
+                )}
+                {text.disable}
+              </button>
+            </div>
+
+            {/* 提示 */}
+            <p className="text-[11px] text-tx-tertiary leading-relaxed">
+              {text.hint}
+            </p>
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
