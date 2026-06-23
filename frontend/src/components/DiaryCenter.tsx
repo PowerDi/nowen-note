@@ -997,15 +997,15 @@ function Lightbox({
 // ============================================================
 // 单条说说卡片
 // ============================================================
-function DiaryCard({
-  item,
-  onDelete,
-  onUpdate,
-}: {
+const DiaryCard = React.forwardRef<HTMLDivElement, {
   item: Diary;
   onDelete: (id: string) => void;
   onUpdate: (updated: Diary) => void;
-}) {
+}>(({
+  item,
+  onDelete,
+  onUpdate,
+}, ref) => {
   const { t } = useTranslation();
   const [showConfirm, setShowConfirm] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
@@ -1130,7 +1130,7 @@ function DiaryCard({
       </AnimatePresence>
     </>
   );
-}
+});
 
 // ============================================================
 // 单条说说编辑器（就地编辑模式）
@@ -1175,6 +1175,9 @@ function DiaryEditor({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const moodRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const recordInputRef = useRef<HTMLInputElement>(null);
 
   // 自动调整高度
   const autoResize = useCallback(() => {
