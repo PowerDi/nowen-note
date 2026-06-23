@@ -1306,7 +1306,29 @@ export default function EditorPane() {
     }
   }, [activeNote, actions, viewLockedIds]);
 
-  const moveToTrash = useCallback(async () => {
+    // NOTE-IMAGE-EXPORT-01: 导出笔记为图片
+  const handleExportNoteImage = useCallback(async (format: "png" | "jpg") => {
+    if (!activeNote) return;
+    const toastId = toast.info(t("note.exportImageExporting"), 0);
+    try {
+      const ok = await exportNoteAsImage(
+        {
+          id: activeNote.id,
+          title: activeNote.title,
+          content: activeNote.content,
+          contentText: activeNote.contentText,
+          updatedAt: activeNote.updatedAt,
+        },
+        { format }
+      );
+      toast.dismiss(toastId);
+      ok ? toast.success(t("note.exportImageSuccess")) : toast.error(t("note.exportImageFailed"));
+    } catch {
+      toast.dismiss(toastId);
+      toast.error(t("note.exportImageFailed"));
+    }
+  }, [activeNote, t]);
+const moveToTrash = useCallback(async () => {
     // ������������Ự�����ʼǲ�����������վ������"�������ʼ�"����ɾ��
     if (!activeNote || activeNote.isLocked || viewLockedIdsRef.current.has(activeNote.id)) return;
     haptic.heavy();
@@ -2081,44 +2103,14 @@ export default function EditorPane() {
                   <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* NOTE-IMAGE-EXPORT-01: 导出为图片 */}
                   <button
-                    onClick={async () => {
-                      setShowMobileMenu(false);
-                      if (!activeNote) return;
-                      const toastId = toast.info(t("note.exportImageExporting"), 0);
-                      try {
-                        const ok = await exportNoteAsImage(
-                          { id: activeNote.id, title: activeNote.title, content: activeNote.content, contentText: activeNote.contentText, updatedAt: activeNote.updatedAt },
-                          { format: "png" }
-                        );
-                        toast.dismiss(toastId);
-                        ok ? toast.success(t("note.exportImageSuccess")) : toast.error(t("note.exportImageFailed"));
-                      } catch {
-                        toast.dismiss(toastId);
-                        toast.error(t("note.exportImageFailed"));
-                      }
-                    }}
+                    onClick={() => { setShowMobileMenu(false); handleExportNoteImage("png"); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <Image size={15} className="text-tx-tertiary" />
                     <span>{t("note.exportAsPng")}</span>
                   </button>
                   <button
-                    onClick={async () => {
-                      setShowMobileMenu(false);
-                      if (!activeNote) return;
-                      const toastId = toast.info(t("note.exportImageExporting"), 0);
-                      try {
-                        const ok = await exportNoteAsImage(
-                          { id: activeNote.id, title: activeNote.title, content: activeNote.content, contentText: activeNote.contentText, updatedAt: activeNote.updatedAt },
-                          { format: "jpg" }
-                        );
-                        toast.dismiss(toastId);
-                        ok ? toast.success(t("note.exportImageSuccess")) : toast.error(t("note.exportImageFailed"));
-                      } catch {
-                        toast.dismiss(toastId);
-                        toast.error(t("note.exportImageFailed"));
-                      }
-                    }}
+                    onClick={() => { setShowMobileMenu(false); handleExportNoteImage("jpg"); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
                   >
                     <Image size={15} className="text-tx-tertiary" />
@@ -2429,7 +2421,16 @@ export default function EditorPane() {
           >
             <Share2 size={14} className="text-emerald-500" />
           </Button>
-
+
+
+          {/* NOTE-IMAGE-EXPORT-01: 导出为图片 */}
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7"
+            onClick={() => handleExportNoteImage("png")}
+            title={t('note.exportAsPng')}
+          >
+            <Image size={14} className="text-tx-tertiary" />
+          </Button>
           {/* �汾��ʷ */}
           <Button
             variant="ghost" size="icon" className="h-7 w-7"

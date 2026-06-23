@@ -2121,11 +2121,11 @@
     }
   },
   "note": {
-    "exportAsPng": "??? PNG",
-    "exportAsJpg": "??? JPG",
-    "exportImageExporting": "???????",
-    "exportImageSuccess": "??????",
-    "exportImageFailed": "??????",
-    "exportImageLongConfirm": "????????????????????????"
+    "exportAsPng": "导出为 PNG",
+    "exportAsJpg": "导出为 JPG",
+    "exportImageExporting": "正在导出图片…",
+    "exportImageSuccess": "图片导出成功",
+    "exportImageFailed": "图片导出失败",
+    "exportImageLongConfirm": "当前笔记较长，导出图片可能较慢或失败，是否继续？"
   }
 }

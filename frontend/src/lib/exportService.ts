@@ -1718,6 +1718,20 @@ export interface ExportNoteImageOptions {
  * ??????? PNG/JPG ???
  * ?? html2canvas ???????? HTML ??? canvas??? blob ???
  */
+// 把 HTML 中的附件图片 src 规范成绝对可访问 URL，兼容 Electron / Android WebView / 自定义 serverUrl
+function rewriteImageSrcForCanvas(html: string): string {
+  if (!html || !/<img\b/i.test(html)) return html;
+  return html.replace(
+    /<img\b([^>]*?)\bsrc\s*=\s*(["'])([^"']+)\2([^>]*)>/gi,
+    (full, before, quote, src, after) => {
+      if (/^(data:|blob:)/i.test(src)) return full;
+      if (!isAttachmentUrl(src)) return full;
+      const resolved = resolveAttachmentUrl(src);
+      return `<img${before} src=${quote}${resolved}${quote}${after}>`;
+    }
+  );
+}
+
 export async function exportNoteAsImage(
   note: {
     id: string;
@@ -1736,8 +1750,9 @@ export async function exportNoteAsImage(
     import("dompurify"),
   ]);
 
-  // ???? HTML
-  const bodyHtml = noteContentToHtml(note.content, note.contentText);
+  // 生成正文 HTML 并修正附件图片地址
+  let bodyHtml = noteContentToHtml(note.content, note.contentText);
+  bodyHtml = rewriteImageSrcForCanvas(bodyHtml);
 
   // ??????
   const host = document.createElement("div");
@@ -1823,7 +1838,7 @@ export async function exportNoteAsImage(
     if (host.scrollHeight > 20000) {
       const proceed = window.confirm(
         // confirm ??? i18n????????????????? i18n confirm
-        "This note is long. Image export may be slow or fail. Continue?"
+        i18n.t("note.exportImageLongConfirm")
       );
       if (!proceed) return false;
     }
@@ -1831,7 +1846,7 @@ export async function exportNoteAsImage(
     const canvas = await html2canvas(host, {
       scale: pixelRatio,
       useCORS: true,
-      allowTaint: true,
+      allowTaint: false,
       backgroundColor: "#ffffff",
       width: 794,
       windowWidth: 794,
