@@ -98,13 +98,16 @@ export function TaskQuickAdd({
     }
   }, [t, value]);
 
-  // 提交：交还给父组件创建任务（附带 orphan ids），父组件创建成功后绑定附件
-  const handleSubmit = () => {
+  // 提交：交还给父组件创建任务（附带 orphan ids），成功后清空本地预览
+  const handleSubmit = async () => {
     if (!value.trim()) return;
+    if (uploading) return;
     const orphanIds = orphans.map((o) => o.id);
-    onSubmit(orphanIds);
-    // 注意：不要在这里清空 orphans，等父组件创建成功后通过回调清除
-    // 创建失败时保留预览，避免用户上传的图片丢失
+    const ok = await onSubmit(orphanIds);
+    if (ok) {
+      setOrphans([]);
+      if (fileRef.current) fileRef.current.value = "";
+    }
   };
 
   const handlePaste = async (e: React.ClipboardEvent<HTMLInputElement>) => {
@@ -186,7 +189,7 @@ export function TaskQuickAdd({
           ref={inputRef}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleSubmit(); } }}
           onPaste={handlePaste}
           placeholder={t('tasks.addTaskPlaceholder')}
           className="flex-1 min-w-0 bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
@@ -204,8 +207,8 @@ export function TaskQuickAdd({
         </button>
         <button
           type="button"
-          onClick={handleSubmit}
-          disabled={!value.trim()}
+          onClick={() => void handleSubmit()}
+          disabled={!value.trim() || uploading}
           className="flex-shrink-0 px-2.5 py-1 rounded-full text-xs font-medium bg-accent-primary text-white disabled:opacity-40 md:hidden"
         >
           {t('tasks.add')}
