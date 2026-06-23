@@ -1950,5 +1950,13 @@
       "10": "Nov",
       "11": "Dec"
     }
+  },
+  "note": {
+    "exportAsPng": "Export as PNG",
+    "exportAsJpg": "Export as JPG",
+    "exportImageExporting": "Exporting image?",
+    "exportImageSuccess": "Image exported",
+    "exportImageFailed": "Failed to export image",
+    "exportImageLongConfirm": "This note is long. Image export may be slow or fail. Continue?"
   }
 }

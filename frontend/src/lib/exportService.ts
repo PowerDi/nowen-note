@@ -1703,3 +1703,155 @@ export async function exportSingleNoteAsImage(noteId: string): Promise<boolean> 
     return false;
   }
 }
+
+// ========== NOTE-IMAGE-EXPORT-01: ??? PNG/JPG ==========
+
+export type NoteImageExportFormat = "png" | "jpg";
+
+export interface ExportNoteImageOptions {
+  format: NoteImageExportFormat;
+  quality?: number;        // jpg ???? 0.92
+  pixelRatio?: number;     // ?? Math.min(window.devicePixelRatio || 1, 2)
+}
+
+/**
+ * ??????? PNG/JPG ???
+ * ?? html2canvas ???????? HTML ??? canvas??? blob ???
+ */
+export async function exportNoteAsImage(
+  note: {
+    id: string;
+    title: string;
+    content: string;
+    contentText: string;
+    updatedAt?: string;
+  },
+  options: ExportNoteImageOptions
+): Promise<boolean> {
+  const { format, quality = 0.92, pixelRatio = Math.min(window.devicePixelRatio || 1, 2) } = options;
+
+  // ?? import ???? bundle
+  const [{ default: html2canvas }, DOMPurify] = await Promise.all([
+    import("html2canvas"),
+    import("dompurify"),
+  ]);
+
+  // ???? HTML
+  const bodyHtml = noteContentToHtml(note.content, note.contentText);
+
+  // ??????
+  const host = document.createElement("div");
+  host.style.position = "fixed";
+  host.style.left = "-10000px";
+  host.style.top = "0";
+  host.style.width = "794px";
+  host.style.background = "#ffffff";
+  host.style.color = "#111827";
+  host.style.padding = "48px";
+  host.style.fontFamily = "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
+  host.style.lineHeight = "1.7";
+  host.style.fontSize = "15px";
+  host.style.zIndex = "-1";
+
+  // ??
+  const titleEl = document.createElement("h1");
+  titleEl.textContent = note.title || "";
+  titleEl.style.fontSize = "28px";
+  titleEl.style.fontWeight = "700";
+  titleEl.style.marginBottom = "8px";
+  titleEl.style.color = "#111827";
+  titleEl.style.wordBreak = "break-word";
+  host.appendChild(titleEl);
+
+  // ????
+  if (note.updatedAt) {
+    const timeEl = document.createElement("p");
+    timeEl.textContent = new Date(note.updatedAt).toLocaleString();
+    timeEl.style.fontSize = "12px";
+    timeEl.style.color = "#9ca3af";
+    timeEl.style.marginBottom = "24px";
+    host.appendChild(timeEl);
+  }
+
+  // ??
+  const bodyEl = document.createElement("div");
+  bodyEl.className = "nowen-export-body";
+  bodyEl.innerHTML = DOMPurify.default.sanitize(bodyHtml, {
+    ADD_TAGS: ["img"],
+    ADD_ATTR: ["src", "alt", "width", "height", "style"],
+  });
+  host.appendChild(bodyEl);
+
+  // ??
+  const styleEl = document.createElement("style");
+  styleEl.textContent = `
+    .nowen-export-body h1 { font-size: 24px; font-weight: 700; margin: 24px 0 12px; }
+    .nowen-export-body h2 { font-size: 20px; font-weight: 600; margin: 20px 0 10px; }
+    .nowen-export-body h3 { font-size: 17px; font-weight: 600; margin: 16px 0 8px; }
+    .nowen-export-body p { margin: 0 0 12px; }
+    .nowen-export-body img { max-width: 100%; border-radius: 8px; margin: 12px 0; }
+    .nowen-export-body pre { background: #f3f4f6; padding: 12px 16px; border-radius: 8px; overflow-x: auto; font-size: 13px; margin: 12px 0; }
+    .nowen-export-body code { background: #f3f4f6; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+    .nowen-export-body pre code { background: none; padding: 0; }
+    .nowen-export-body ul, .nowen-export-body ol { padding-left: 24px; margin: 8px 0; }
+    .nowen-export-body li { margin: 4px 0; }
+    .nowen-export-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 20px 0; }
+    .nowen-export-body img { max-width: 100%; }
+    .nowen-export-body a { color: #2563eb; text-decoration: none; }
+    .nowen-export-body a:hover { text-decoration: underline; }
+    .nowen-export-body table { width: 100%; border-collapse: collapse; }
+    .nowen-export-body th, .nowen-export-body td { border: 1px solid #e5e7eb; padding: 6px 8px; }
+    .nowen-export-body blockquote { border-left: 4px solid #d1d5db; margin-left: 0; padding-left: 12px; color: #4b5563; }
+  `;
+  host.appendChild(styleEl);
+
+  document.body.appendChild(host);
+
+  try {
+    // ?????
+    const imgs = Array.from(host.querySelectorAll("img"));
+    await Promise.all(imgs.map((img) => {
+      if (img.complete) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        img.onload = () => resolve();
+        img.onerror = () => resolve();
+        setTimeout(() => resolve(), 5000);
+      });
+    }));
+
+    // ?????
+    if (host.scrollHeight > 20000) {
+      const proceed = window.confirm(
+        // confirm ??? i18n????????????????? i18n confirm
+        "This note is long. Image export may be slow or fail. Continue?"
+      );
+      if (!proceed) return false;
+    }
+
+    const canvas = await html2canvas(host, {
+      scale: pixelRatio,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: "#ffffff",
+      width: 794,
+      windowWidth: 794,
+    });
+
+    const mimeType = format === "jpg" ? "image/jpeg" : "image/png";
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, mimeType, quality)
+    );
+
+    if (!blob) return false;
+
+    const safeTitle = sanitizeFilename(note.title) || "note";
+    const ext = format === "jpg" ? "jpg" : "png";
+    saveAs(blob, `${safeTitle}.${ext}`);
+    return true;
+  } catch (error) {
+    console.error("??????:", error);
+    return false;
+  } finally {
+    document.body.removeChild(host);
+  }
+}

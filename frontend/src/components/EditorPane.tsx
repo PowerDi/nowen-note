@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2 } from "lucide-react";
+import { Star, Pin, Trash2, Cloud, CloudOff, RefreshCw, Check, Loader2, ChevronLeft, FolderInput, ChevronRight, ChevronDown, X, ListTree, Lock, Unlock, Tag as TagIcon, Type, MoreHorizontal, Share2, History, MessageCircle, FileCode, Eye, Pencil, CloudUpload, PanelLeft, Paperclip, Search, Sparkles, Network, Maximize2, Minimize2, Image } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import TiptapEditor, { HeadingItem } from "@/components/TiptapEditor";
@@ -15,6 +15,7 @@ import { Tag, Notebook, MindMapData, MindMapNode } from "@/types";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
+import { exportNoteAsImage } from "@/lib/exportService";
 
 import { extractFinalAnswer } from "@/lib/aiOutput";
 
@@ -2078,6 +2079,52 @@ export default function EditorPane() {
                     </>
                   )}
                   <div className="h-px bg-app-border mx-2 my-0.5" />
+                  {/* NOTE-IMAGE-EXPORT-01: 导出为图片 */}
+                  <button
+                    onClick={async () => {
+                      setShowMobileMenu(false);
+                      if (!activeNote) return;
+                      const toastId = toast.info(t("note.exportImageExporting"), 0);
+                      try {
+                        const ok = await exportNoteAsImage(
+                          { id: activeNote.id, title: activeNote.title, content: activeNote.content, contentText: activeNote.contentText, updatedAt: activeNote.updatedAt },
+                          { format: "png" }
+                        );
+                        toast.dismiss(toastId);
+                        ok ? toast.success(t("note.exportImageSuccess")) : toast.error(t("note.exportImageFailed"));
+                      } catch {
+                        toast.dismiss(toastId);
+                        toast.error(t("note.exportImageFailed"));
+                      }
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Image size={15} className="text-tx-tertiary" />
+                    <span>{t("note.exportAsPng")}</span>
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setShowMobileMenu(false);
+                      if (!activeNote) return;
+                      const toastId = toast.info(t("note.exportImageExporting"), 0);
+                      try {
+                        const ok = await exportNoteAsImage(
+                          { id: activeNote.id, title: activeNote.title, content: activeNote.content, contentText: activeNote.contentText, updatedAt: activeNote.updatedAt },
+                          { format: "jpg" }
+                        );
+                        toast.dismiss(toastId);
+                        ok ? toast.success(t("note.exportImageSuccess")) : toast.error(t("note.exportImageFailed"));
+                      } catch {
+                        toast.dismiss(toastId);
+                        toast.error(t("note.exportImageFailed"));
+                      }
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-sm text-tx-secondary active:bg-app-hover transition-colors"
+                  >
+                    <Image size={15} className="text-tx-tertiary" />
+                    <span>{t("note.exportAsJpg")}</span>
+                  </button>
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
                   {/* ɾ���ʼ� */}
                   <button
                     onClick={() => {
