@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -455,7 +455,11 @@ export default function ContextMenu({
         toast.dismiss(toastId);
         toast.error(err?.message || t("export.exportFailed", { error: String(err) }));
       }
+      return;
     }
+
+    // export_png / export_jpg fallback
+    onAction(actionId);
   };
 
   return (
