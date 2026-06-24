@@ -973,9 +973,6 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         label: note.isLocked === 1 ? t("noteList.unlock") || "解锁" : t("noteList.lock") || "锁定",
         icon: note.isLocked === 1 ? <Unlock size={14} /> : <Lock size={14} />,
       },
-      { id: "sep_export", label: "", separator: true },
-      { id: "export_png", label: t("note.exportAsPng"), icon: <Image size={14} /> },
-      { id: "export_jpg", label: t("note.exportAsJpg"), icon: <Image size={14} /> },
       { id: "sep1", label: "", separator: true },
       {
         id: "trash",

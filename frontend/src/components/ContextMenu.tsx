@@ -27,6 +27,8 @@ export interface ContextMenuItem {
   danger?: boolean;
   disabled?: boolean;
   separator?: boolean;
+  /** 子菜单项，hover/click 后展开二级菜单 */
+  children?: ContextMenuItem[];
 }
 
 interface ContextMenuProps {
@@ -279,6 +281,8 @@ export default function ContextMenu({
   const internalRef = useRef<HTMLDivElement | null>(null);
   const [adjustedPos, setAdjustedPos] = useState({ x, y });
   const [moveNoteId, setMoveNoteId] = useState<string | null>(null);
+  const [submenuParentId, setSubmenuParentId] = useState<string | null>(null);
+  const submenuCloseTimer = { current: null as ReturnType<typeof setTimeout> | null };
   const { t } = useTranslation();
 
   const latestMenu = getLatestContextMenuState();
@@ -458,7 +462,26 @@ export default function ContextMenu({
       return;
     }
 
-    // export_png / export_jpg fallback
+    if (actionId === 'export_png' || actionId === 'export_jpg') {
+      const format = actionId === 'export_png' ? 'png' : 'jpg' as 'png' | 'jpg';
+      const toastId = toast.info(t('note.exportImageExporting') || '导出中...', 0);
+      try {
+        const fullNote = await api.getNote(targetId);
+        const { exportNoteAsImage } = await import('@/lib/exportService');
+        const ok = await exportNoteAsImage(
+          { id: fullNote.id, title: fullNote.title, content: fullNote.content, contentText: fullNote.contentText, updatedAt: fullNote.updatedAt },
+          { format }
+        );
+        toast.dismiss(toastId);
+        ok ? toast.success(t('note.exportImageSuccess') || '导出成功') : toast.error(t('note.exportImageFailed') || '导出失败');
+      } catch (err: any) {
+        toast.dismiss(toastId);
+        toast.error(err?.message || t('note.exportImageFailed') || '导出失败');
+      }
+      return;
+    }
+
+    // fallback
     onAction(actionId);
   };
 
@@ -484,6 +507,49 @@ export default function ContextMenu({
           {displayItems.map((item) =>
             item.separator ? (
               <div key={item.id} className="h-px bg-black/[0.06] dark:bg-white/[0.08] my-1 mx-2" />
+            ) : item.children ? (
+              <div
+                key={item.id}
+                className="relative"
+                onMouseEnter={() => { if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current); setSubmenuParentId(item.id); }}
+                onMouseLeave={() => { submenuCloseTimer.current = setTimeout(() => setSubmenuParentId(null), 150); }}
+              >
+                <button type="button" disabled={item.disabled}
+                  className={cn(
+                    "w-full flex items-center justify-between gap-2 px-3 py-2 text-sm transition-colors duration-150 ease-out",
+                    item.disabled && "opacity-40 cursor-not-allowed",
+                    submenuParentId === item.id && "bg-black/[0.04] dark:bg-white/[0.06]",
+                    "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary"
+                  )}
+                >
+                  <span className="flex items-center gap-2">
+                    {item.icon && <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span>}
+                    {item.label}
+                  </span>
+                  <ChevronRight size={12} className="text-tx-tertiary" />
+                </button>
+                {submenuParentId === item.id && (
+                  <div
+                    className="absolute left-full top-0 ml-1 w-40 backdrop-blur-xl bg-white/90 dark:bg-zinc-900/90 rounded-[12px] shadow-lg shadow-black/[0.08] dark:shadow-black/30 border border-black/[0.06] dark:border-white/[0.08] py-1 z-[101]"
+                    onMouseEnter={() => { if (submenuCloseTimer.current) clearTimeout(submenuCloseTimer.current); }}
+                    onMouseLeave={() => { submenuCloseTimer.current = setTimeout(() => setSubmenuParentId(null), 150); }}
+                  >
+                    {item.children.map((child) => (
+                      <button key={child.id} type="button" disabled={child.disabled}
+                        onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setSubmenuParentId(null); if (!child.disabled) void handleSpecialInlineNoteAction(child.id); }}
+                        className={cn(
+                          "w-full flex items-center gap-2 px-3 py-1.5 text-xs transition-colors duration-150 ease-out",
+                          child.disabled && "opacity-40 cursor-not-allowed",
+                          "text-zinc-700 dark:text-zinc-300 hover:bg-black/[0.04] dark:hover:bg-white/[0.06] hover:text-tx-primary"
+                        )}
+                      >
+                        {child.icon && <span className="w-3.5 h-3.5 flex items-center justify-center">{child.icon}</span>}
+                        {child.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : (
               <button
                 key={item.id}

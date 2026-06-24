@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "cancel": "Cancel",
     "chars": "chars",
@@ -163,6 +163,7 @@
     "favorite": "Favorite",
     "lock": "Lock Note",
     "unlock": "Unlock Note",
+    "export": "Export...",
     "exportAsMarkdown": "Export as Markdown",
     "exportAsPDF": "Export as PDF",
     "exportAsImage": "Export as Image",
