@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
-import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage } from "@/lib/exportService";
+import { exportSingleNote, exportSingleNoteAsPDF, exportSingleNoteAsImage, exportNoteAsImage } from "@/lib/exportService";
 import { realtime } from "@/lib/realtime"
 import { confirm } from "@/components/ui/confirm";
 import { highlightTextNode, sanitizeSearchHtml, stripSearchMarks } from "@/lib/searchHighlight";
@@ -2174,29 +2174,21 @@ export default function NoteList() {
         icon: <FolderInput size={14} />,
         disabled: !bulkMode && !!targetNote.isLocked,
       },
-      // 单笔记导出为 Markdown / PDF / 图片（批量模式暂不提供，避免一次触发 N 个下载弹窗）
+      // 单笔记导出：批量模式暂不提供子菜单，避免一次触发 N 个下载弹窗。
       ...(bulkMode
         ? []
         : [
             {
-              id: "export_md",
-              label: t('noteList.exportAsMarkdown'),
+              id: "export_submenu",
+              label: t("noteList.export") || "导出...",
               icon: <Download size={14} />,
-            } as ContextMenuItem,
-            {
-              id: "export_pdf",
-              label: t('noteList.exportAsPDF'),
-              icon: <Printer size={14} />,
-            } as ContextMenuItem,
-            {
-              id: "export_image",
-              label: t('noteList.exportAsImage'),
-              icon: <ImageIcon size={14} />,
-            } as ContextMenuItem,
-            {
-              id: "export_word",
-              label: t('noteList.exportAsWord'),
-              icon: <FileType2 size={14} />,
+              children: [
+                { id: "export_md", label: t("noteList.exportAsMarkdown") || "Markdown", icon: <Download size={14} /> },
+                { id: "export_pdf", label: t("noteList.exportAsPDF") || "PDF", icon: <Printer size={14} /> },
+                { id: "export_png", label: t("note.exportAsPng") || "图片 PNG", icon: <ImageIcon size={14} /> },
+                { id: "export_jpg", label: t("note.exportAsJpg") || "图片 JPG", icon: <ImageIcon size={14} /> },
+                { id: "export_word", label: t("noteList.exportAsWord") || "Word", icon: <FileType2 size={14} /> },
+              ],
             } as ContextMenuItem,
           ]),
       { id: "sep2", label: "", separator: true },
@@ -2286,21 +2278,31 @@ export default function NoteList() {
         }
         break;
       }
-      case "export_image": {
-        // 单笔记导出 PNG：SVG foreignObject → canvas。
+      case "export_png":
+      case "export_jpg": {
+        // 单笔记导出 PNG / JPG：复用编辑器/侧边栏已有的 html2canvas 链路。
         haptic.light();
-        const toastId = toast.info(t('export.exportingNote', { name: targetNote.title }), 0);
+        const format = actionId === "export_png" ? "png" : "jpg";
+        const toastId = toast.info(t('note.exportImageExporting') || '导出中...', 0);
         try {
-          const ok = await exportSingleNoteAsImage(targetId);
+          const fresh = await api.getNote(targetId);
+          const ok = await exportNoteAsImage(
+            {
+              id: fresh.id,
+              title: fresh.title,
+              content: fresh.content,
+              contentText: fresh.contentText,
+              updatedAt: fresh.updatedAt,
+            },
+            { format }
+          );
           toast.dismiss(toastId);
-          if (ok) {
-            toast.success(t('export.exportComplete'));
-          } else {
-            toast.error(t('export.exportFailed', { error: '' }));
-          }
+          ok
+            ? toast.success(t('note.exportImageSuccess') || '导出成功')
+            : toast.error(t('note.exportImageFailed') || '导出失败');
         } catch (err: any) {
           toast.dismiss(toastId);
-          toast.error(err?.message || t('export.exportFailed', { error: String(err) }));
+          toast.error(err?.message || t('note.exportImageFailed') || '导出失败');
         }
         break;
       }
