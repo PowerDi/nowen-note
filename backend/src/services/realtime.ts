@@ -597,6 +597,7 @@ export function broadcastNoteDeleted(
     actorConnectionId: actorConnectionId || null,
     ...payload,
   };
+  console.log("[realtime] broadcastNoteDeleted", { noteId, actorUserId: payload.actorUserId, trashed: payload.trashed, actorConnectionId });
   // 广播到 note:{noteId} 房间（正在打开该笔记的客户端）
   broadcastRoom(`note:${noteId}`, deleteMsg, actorConnectionId);
   // 同时广播到发起用户的所有连接（停留在列表页/其它笔记的客户端也能收到）

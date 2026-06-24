@@ -296,6 +296,7 @@ export async function deleteNote(id: string): Promise<void> {
   await safe(async () => {
     const db = await p;
     await db.delete("notes", id);
+    console.log("[localStore] deleteNote", id);
   }, undefined, "deleteNote");
 }
 

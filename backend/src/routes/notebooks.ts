@@ -10,6 +10,7 @@ import {
   buildVisibilityWhere,
 } from "../middleware/acl";
 import { notebookRoleToPermission } from "../services/notebook-permissions";
+import { broadcastNoteDeleted } from "../services/realtime";
 
 const app = new Hono();
 
@@ -794,6 +795,12 @@ app.delete("/:id", (c) => {
   } catch (e) {
     console.error("[notebooks.delete] soft-delete tx failed:", (e as Error).message);
     return c.json({ error: "删除失败" }, 500);
+  }
+
+  // SYNC-DELETE-01-B-R: 删除笔记本时，其下笔记被标为 isTrashed=1，
+  // 需要广播 note:deleted(trashed=true) 让其它客户端实时从列表移除
+  for (const noteId of trashedNoteIds) {
+    try { broadcastNoteDeleted(noteId, { actorUserId: userId, trashed: true }); } catch {}
   }
 
   return c.json({

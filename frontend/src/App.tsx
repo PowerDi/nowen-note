@@ -423,6 +423,7 @@ function AppLayout() {
       const noteId = msg?.noteId || msg?.id;
       if (!noteId) return;
       if (state.activeNote?.id === noteId) {
+        console.log("[App] note:deleted for active note, closing editor", { noteId, trashed: msg.trashed });
         actions.setActiveNote(null);
         import("@/lib/toast").then(({ toast }) => {
           if (msg.trashed) {
