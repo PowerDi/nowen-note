@@ -76,7 +76,7 @@ export const FlatTaskRow = React.forwardRef<HTMLDivElement, {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, x: -20, transition: { duration: 0.15 } }}
         className={cn(
-          "group flex items-start gap-3 w-full min-w-0 px-4 py-3 rounded-lg border transition-all cursor-pointer",
+          "group flex items-start gap-3 w-full min-w-0 px-3 py-2 rounded-lg border transition-all cursor-pointer",
           isCompleted
             ? "border-transparent bg-app-hover/50 opacity-60"
             : "border-app-border bg-app-elevated hover:shadow-md hover:border-accent-primary/30"

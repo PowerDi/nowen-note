@@ -68,7 +68,7 @@ export const TaskTreeRow = React.forwardRef<HTMLDivElement, {
         exit={{ opacity: 0, x: -20, transition: { duration: 0.15 } }}
         style={{ paddingLeft: `${indentPx}px` }}
         className={cn(
-          "group flex items-start gap-2 w-full min-w-0 pr-4 py-3 rounded-lg border transition-all cursor-pointer",
+          "group flex items-start gap-2 w-full min-w-0 pr-3 py-2 rounded-lg border transition-all cursor-pointer",
           isCompleted
             ? "border-transparent bg-app-hover/50 opacity-60"
             : "border-app-border bg-app-elevated hover:shadow-md hover:border-accent-primary/30"

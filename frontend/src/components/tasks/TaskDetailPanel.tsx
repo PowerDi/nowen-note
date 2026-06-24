@@ -259,11 +259,11 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       className={cn(
         "h-full border-l border-app-border bg-app-surface flex flex-col shrink-0",
         "fixed inset-0 z-30 w-full border-l-0",
-        "md:static md:z-auto md:w-[340px] md:min-w-[340px] md:border-l"
+        "md:static md:z-auto md:w-[380px] md:min-w-[380px] md:border-l"
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-app-border" style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-app-border" style={{ paddingTop: "calc(var(--safe-area-top) + 4px)" }}>
         <span className="text-sm font-semibold text-tx-primary">{t("tasks.taskDetail")}</span>
         <button onClick={onClose} className="p-1 rounded-md hover:bg-app-hover transition-colors">
           <X size={16} className="text-tx-secondary" />
@@ -271,7 +271,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-auto p-4 space-y-5">
+      <div className="flex-1 overflow-auto p-4 space-y-4">
         {/* Title */}
         <div>
           <label className="text-xs text-tx-tertiary uppercase tracking-wider mb-1.5 block">{t("tasks.taskTitle")}</label>
@@ -758,7 +758,7 @@ export const TaskDetailPanel = React.forwardRef<HTMLDivElement, {
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-app-border" style={{ paddingBottom: "calc(var(--safe-area-bottom) + 16px)" }}>
+      <div className="p-3 border-t border-app-border" style={{ paddingBottom: "calc(var(--safe-area-bottom) + 16px)" }}>
         <button
           onClick={() => { onDelete(task.id); onClose(); }}
           className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm text-accent-danger border border-accent-danger/30 hover:bg-accent-danger/10 transition-colors"

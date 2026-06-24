@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { isTaskDateOverdue } from "./DateBadge";
 
 /* ===== SVG 圆环进度 ===== */
-function ProgressRing({ value, size = 52, strokeWidth = 5 }: {
+function ProgressRing({ value, size = 40, strokeWidth = 4 }: {
   value: number;
   size?: number;
   strokeWidth?: number;
@@ -60,11 +60,11 @@ function formatOverdue(targetMs: number): string {
   const diff = Date.now() - targetMs;
   if (diff <= 0) return "";
   const totalMin = Math.floor(diff / 60000);
-  if (totalMin < 60) return `${totalMin}\u5206\u949F`;
+  if (totalMin < 60) return `${totalMin}分钟`;
   const totalHours = Math.floor(totalMin / 60);
-  if (totalHours < 24) return `${totalHours}\u5C0F\u65F6`;
+  if (totalHours < 24) return `${totalHours}小时`;
   const days = Math.floor(totalHours / 24);
-  return `${days}\u5929`;
+  return `${days}天`;
 }
 
 export function TaskOverview({
@@ -114,68 +114,68 @@ export function TaskOverview({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 px-4 md:px-6 py-4">
+    <div className="grid grid-cols-3 gap-2.5 px-4 md:px-5 pt-3 pb-1">
       {/* 总体进度 */}
-      <div className="flex items-center gap-4 p-4 rounded-xl bg-app-surface shadow-sm border border-app-border transition-colors">
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-app-surface shadow-sm border border-app-border transition-colors">
         <div className="relative flex-shrink-0">
           <ProgressRing value={progressPct} />
-          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-accent-primary">
+          <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-accent-primary">
             {progressPct}%
           </span>
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-tx-tertiary">{t('tasks.overview.totalProgress')}</div>
-          <div className="text-sm font-semibold text-tx-primary">
-            {stats.completed} / {stats.total}
+          <div className="text-[10px] text-tx-tertiary leading-tight">{t('tasks.overview.totalProgress')}</div>
+          <div className="text-xs font-semibold text-tx-primary leading-tight">
+            {stats.completed}/{stats.total}
           </div>
-          <div className="text-xs text-tx-tertiary">
+          <div className="text-[10px] text-tx-tertiary leading-tight">
             {t('tasks.overview.pending', { count: stats.pending })}
           </div>
         </div>
       </div>
 
       {/* 今日任务 */}
-      <div className="flex items-center gap-4 p-4 rounded-xl bg-app-surface shadow-sm border border-app-border transition-colors">
-        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-accent-primary/10">
-          <CalendarDays size={22} className="text-accent-primary" />
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-app-surface shadow-sm border border-app-border transition-colors">
+        <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-accent-primary/10">
+          <CalendarDays size={18} className="text-accent-primary" />
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-tx-tertiary">{t('tasks.overview.todayTasks')}</div>
-          <div className="text-lg font-bold text-tx-primary">{stats.today}</div>
-          <div className="text-xs text-tx-tertiary">
+          <div className="text-[10px] text-tx-tertiary leading-tight">{t('tasks.overview.todayTasks')}</div>
+          <div className="text-sm font-bold text-tx-primary leading-tight">{stats.today}</div>
+          <div className="text-[10px] text-tx-tertiary leading-tight">
             {t('tasks.overview.thisWeek', { count: stats.week ?? 0 })}
           </div>
         </div>
       </div>
 
       {/* 最近截止 + 倒计时 */}
-      <div className="flex items-center gap-4 p-4 rounded-xl bg-app-surface shadow-sm border border-app-border transition-colors">
+      <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-app-surface shadow-sm border border-app-border transition-colors">
         <div className={cn(
-          "flex items-center justify-center w-12 h-12 rounded-full",
+          "flex items-center justify-center w-9 h-9 rounded-lg",
           isOverdue ? "bg-red-500/10" : "bg-amber-500/10"
         )}>
-          <Clock size={22} className={isOverdue ? "text-red-500" : "text-amber-500"} />
+          <Clock size={18} className={isOverdue ? "text-red-500" : "text-amber-500"} />
         </div>
         <div className="min-w-0">
-          <div className="text-xs text-tx-tertiary">{t('tasks.overview.nearestDue')}</div>
+          <div className="text-[10px] text-tx-tertiary leading-tight">{t('tasks.overview.nearestDue')}</div>
           {nearestDue ? (
             <>
-              <div className="text-sm font-semibold text-tx-primary truncate" title={nearestDue.title}>
-                {nearestDue.title.length > 16
-                  ? nearestDue.title.slice(0, 16) + "\u2026"
+              <div className="text-xs font-semibold text-tx-primary truncate leading-tight" title={nearestDue.title}>
+                {nearestDue.title.length > 12
+                  ? nearestDue.title.slice(0, 12) + "…"
                   : nearestDue.title}
               </div>
               <div className={cn(
-                "text-xs font-mono",
+                "text-[10px] font-mono leading-tight",
                 isOverdue ? "text-red-500 font-medium" : "text-tx-tertiary"
               )}>
                 {isOverdue
-                  ? `\u903E\u671F ${countdownStr}`
+                  ? `逾期 ${countdownStr}`
                   : countdownStr}
               </div>
             </>
           ) : (
-            <div className="text-sm text-tx-tertiary">{t('tasks.overview.noDeadline')}</div>
+            <div className="text-xs text-tx-tertiary leading-tight">{t('tasks.overview.noDeadline')}</div>
           )}
         </div>
       </div>
