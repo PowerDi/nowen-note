@@ -47,6 +47,8 @@ export interface UserPreferences {
   showNotesInNotebookTree: boolean;
   /** 阅读密度（cozy/compact）。默认 cozy，即与历史一致的宽松排版。 */
   readingDensity: ReadingDensity;
+  /** 笔记列表是否显示更新时间。默认 true。 */
+  showNoteListUpdatedTime: boolean;
 }
 
 const DEFAULT_PREFS: UserPreferences = {
@@ -55,6 +57,7 @@ const DEFAULT_PREFS: UserPreferences = {
   lockOnOpen: false,
   showNotesInNotebookTree: false,
   readingDensity: "cozy",
+  showNoteListUpdatedTime: true,
 };
 
 function readFromStorage(): UserPreferences {
@@ -79,6 +82,11 @@ function readFromStorage(): UserPreferences {
       readingDensity: parsed.readingDensity === "compact" || parsed.readingDensity === "cozy"
         ? parsed.readingDensity
         : DEFAULT_PREFS.readingDensity,
+      showNoteListUpdatedTime: typeof parsed.showNoteListUpdatedTime === "boolean"
+        ? parsed.showNoteListUpdatedTime
+        : (localStorage.getItem("nowen.noteList.showTime") !== null
+          ? localStorage.getItem("nowen.noteList.showTime") === "true"
+          : DEFAULT_PREFS.showNoteListUpdatedTime),
     };
   } catch {
     return DEFAULT_PREFS;

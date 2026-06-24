@@ -528,6 +528,8 @@
     "prefLockOnOpen": "Lock notes on open",
     "prefLockOnOpenHint": "When enabled, every note opens in read-only view; click the unlock button to start editing. This lock applies only on this device, is not written to the note, and does not affect other users.",
     "prefShowNotesInNotebookTree": "Show notes in notebook tree",
+    "prefShowNoteListUpdatedTime": "Show updated time in note list",
+    "prefShowNoteListUpdatedTimeHint": "Show relative dates in the note list. Turn it off for a cleaner list.",
     "prefShowNotesInNotebookTreeHint": "When enabled, the left notebook tree shows direct notes under expanded notebooks. Search, tags, favorites, and trash still use the list.",
     "readingDensity": "Reading Density",
     "readingDensityDesc": "Adjust vertical spacing of paragraphs and list items. Compact saves screen space (per-device).",

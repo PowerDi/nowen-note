@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import ContextMenu, { ContextMenuItem } from "@/components/ContextMenu";
 import { useContextMenu } from "@/hooks/useContextMenu";
+import { useUserPreferences } from "@/hooks/useUserPreferences";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, getCurrentWorkspace } from "@/lib/api";
 import { NoteListItem, Notebook } from "@/types";
@@ -42,22 +43,6 @@ function loadSortPref(): { by: SortBy; dir: SortDir } {
 
 function saveSortPref(pref: { by: SortBy; dir: SortDir }) {
   try { localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(pref)); } catch {}
-}
-
-const TIME_VISIBILITY_STORAGE_KEY = "nowen.noteList.showTime";
-
-function loadShowTimePref(): boolean {
-  try {
-    const raw = localStorage.getItem(TIME_VISIBILITY_STORAGE_KEY);
-    if (raw === null) return true;
-    return raw === "true";
-  } catch {
-    return true;
-  }
-}
-
-function saveShowTimePref(value: boolean) {
-  try { localStorage.setItem(TIME_VISIBILITY_STORAGE_KEY, String(value)); } catch {}
 }
 
 /* ===== 排序下拉菜单 =====
@@ -1370,7 +1355,8 @@ export default function NoteList() {
   const notesQueryKeyRef = useRef("");
   // 排序偏好（持久化到 localStorage，不入 store；用户在不同设备/浏览器下可独立设置）
   const [sortPref, setSortPref] = useState<{ by: SortBy; dir: SortDir }>(() => loadSortPref());
-  const [showNoteTime, setShowNoteTime] = useState(() => loadShowTimePref());
+  const userPrefs = useUserPreferences();
+  const showNoteTime = userPrefs.prefs.showNoteListUpdatedTime;
   const [showSortMenu, setShowSortMenu] = useState(false);
   const sortBtnRef = useRef<HTMLButtonElement>(null);
   const [sharedNoteIds, setSharedNoteIds] = useState<Set<string>>(new Set());
@@ -2872,13 +2858,7 @@ export default function NoteList() {
               }}
               onClose={() => setShowSortMenu(false)}
               showNoteTime={showNoteTime}
-              onToggleShowTime={() => {
-                setShowNoteTime(prev => {
-                  const next = !prev;
-                  saveShowTimePref(next);
-                  return next;
-                });
-              }}
+              onToggleShowTime={() => userPrefs.setUserPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
             />
           )}
         </div>
@@ -2980,13 +2960,7 @@ export default function NoteList() {
               }}
               onClose={() => setShowSortMenu(false)}
               showNoteTime={showNoteTime}
-              onToggleShowTime={() => {
-                setShowNoteTime(prev => {
-                  const next = !prev;
-                  saveShowTimePref(next);
-                  return next;
-                });
-              }}
+              onToggleShowTime={() => userPrefs.setUserPref("showNoteListUpdatedTime", !userPrefs.prefs.showNoteListUpdatedTime)}
             />
           )}
         </div>
