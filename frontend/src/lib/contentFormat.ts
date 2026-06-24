@@ -117,7 +117,39 @@ function getTiptapExtensions() {
       codeBlock: false,
       heading: { levels: [1, 2, 3] },
     }),
-    Image.configure({ inline: false, allowBase64: true }),
+    Image.extend({
+      addAttributes() {
+        return {
+          ...this.parent?.(),
+          width: {
+            default: null,
+            parseHTML: (element) => {
+              const raw = element.getAttribute("width");
+              if (!raw) return null;
+              const n = parseInt(raw, 10);
+              return Number.isFinite(n) && n > 0 ? n : null;
+            },
+            renderHTML: (attrs) => {
+              if (attrs.width == null) return {};
+              return { width: attrs.width };
+            },
+          },
+          height: {
+            default: null,
+            parseHTML: (element) => {
+              const raw = element.getAttribute("height");
+              if (!raw) return null;
+              const n = parseInt(raw, 10);
+              return Number.isFinite(n) && n > 0 ? n : null;
+            },
+            renderHTML: (attrs) => {
+              if (attrs.height == null) return {};
+              return { height: attrs.height };
+            },
+          },
+        };
+      },
+    }).configure({ inline: false, allowBase64: true }),
     CodeBlockLowlight.configure({ lowlight }),
     Underline,
     Highlight.configure({ multicolor: true }),
@@ -196,13 +228,27 @@ function getTurndown(): TurndownService {
   // 有 width 属性时，保留为 HTML <img> 标签，让 ReactMarkdown + rehype-raw 透传，
   // 分享页 DOM 后处理再补 inline style。
   td.addRule("imageWithWidth", {
-    filter: (node) => node.nodeName === "IMG" && !!node.getAttribute("width"),
+    filter: (node) => {
+      if (node.nodeName !== "IMG") return false;
+      const el = node as Element;
+      return !!(
+        el.getAttribute("width") ||
+        el.getAttribute("data-width") ||
+        (el as HTMLElement).style?.width
+      );
+    },
     replacement: (_content, node) => {
       const el = node as Element;
       const src = el.getAttribute("src") || "";
       const alt = el.getAttribute("alt") || "";
-      const w = el.getAttribute("width") || "";
-      const wAttr = w ? ` width="${w}"` : "";
+      const raw =
+        el.getAttribute("width") ||
+        el.getAttribute("data-width") ||
+        ((el as HTMLElement).style?.width || "").replace(/px$/i, "") ||
+        "";
+      const m = String(raw).trim().match(/^(\d+(?:\.\d+)?)$/);
+      const w = m ? Math.round(Number(m[1])) : null;
+      const wAttr = w && w > 0 ? ` width="${w}"` : "";
       return `<img src="${src.replace(/"/g, "&quot;")}" alt="${alt.replace(/"/g, "&quot;")}"${wAttr} />`;
     },
   });

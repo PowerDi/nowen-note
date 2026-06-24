@@ -103,36 +103,37 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
   }, [lightboxImage]);
 
   // DOM 后处理：统一给分享页正文图片补 width style，覆盖所有渲染路径
-  // （ReactMarkdown / dangerouslySetInnerHTML / 原始 HTML 透传）
+  // （ReactMarkdown / dangerouslySetInnerHTML / 原始 HTML 透传）。
+  // 用 requestAnimationFrame 确保 ReactMarkdown 渲染完成后再处理。
   useEffect(() => {
     const root = pmRenderRef.current;
     if (!root) return;
-    const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-    for (const img of imgs) {
-      // 已处理过则跳过
-      if (img.dataset.wNorm) continue;
-      const raw =
-        img.style.width ||
-        img.getAttribute("width") ||
-        img.getAttribute("data-width") ||
-        img.getAttribute("data-image-width") ||
-        "";
-      const num = typeof raw === "number"
-        ? raw
-        : typeof raw === "string"
-          ? parseFloat(raw.replace(/px$/i, ""))
-          : NaN;
-      const w = Number.isFinite(num) && num > 0 ? Math.round(num) : null;
-      img.style.maxWidth = "100%";
-      img.style.height = "auto";
-      img.style.cursor = "zoom-in";
-      if (w) {
-        img.style.width = `${w}px`;
-        img.setAttribute("width", String(w));
+    const raf = requestAnimationFrame(() => {
+      const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
+      for (const img of imgs) {
+        const raw =
+          img.style.width ||
+          img.getAttribute("width") ||
+          img.getAttribute("data-width") ||
+          img.getAttribute("data-image-width") ||
+          "";
+        const num = typeof raw === "number"
+          ? raw
+          : typeof raw === "string"
+            ? parseFloat(raw.replace(/px$/i, ""))
+            : NaN;
+        const w = Number.isFinite(num) && num > 0 ? Math.round(num) : null;
+        img.style.maxWidth = "100%";
+        img.style.height = "auto";
+        img.style.cursor = "zoom-in";
+        if (w) {
+          img.style.width = `${w}px`;
+          img.setAttribute("width", String(w));
+        }
       }
-      img.dataset.wNorm = "1";
-    }
-  });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [content?.content]);
 
   useEffect(() => { guestNameRef.current = guestName; }, [guestName]);
   useEffect(() => { accessTokenRef.current = accessToken; }, [accessToken]);
