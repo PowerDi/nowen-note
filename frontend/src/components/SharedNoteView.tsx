@@ -108,33 +108,6 @@ export default function SharedNoteView({ shareToken }: SharedNoteViewProps) {
     if (!root) return;
     const raf = requestAnimationFrame(() => {
       const imgs = Array.from(root.querySelectorAll<HTMLImageElement>("img"));
-      // DEV 排查：输出 content 中 Tiptap image 节点的真实 attrs
-      if (import.meta.env.DEV) {
-        const fmt = detectFormat(content?.content || "");
-        let imageNodes: any[] = [];
-        if (fmt === "tiptap-json") {
-          try {
-            const doc = JSON.parse(content?.content || "{}");
-            const walk = (node: any) => {
-              if (!node || typeof node !== "object") return;
-              if (node.type === "image") imageNodes.push(node.attrs || {});
-              if (Array.isArray(node.content)) node.content.forEach(walk);
-            };
-            walk(doc);
-          } catch {}
-        }
-        console.log("[ShareImageDebug]", {
-          format: fmt,
-          imageNodes,
-          imgCount: imgs.length,
-          domImgs: imgs.map((img, i) => ({
-            i,
-            widthAttr: img.getAttribute("width"),
-            styleAttr: img.getAttribute("style"),
-            renderedW: Math.round(img.getBoundingClientRect().width),
-          })),
-        });
-      }
       for (const img of imgs) {
         const raw =
           img.style.width ||
@@ -1752,9 +1725,6 @@ function renderNode(node: any): string {
     case "horizontalRule":
       return "<hr />";
     case "image": {
-      if (import.meta.env.DEV) {
-        console.log("[ShareRenderImage] node.attrs =", JSON.stringify(node.attrs));
-      }
       const src = resolveAttachmentUrl(node.attrs?.src || "");
       const alt = node.attrs?.alt || "";
       const raw = node.attrs?.width;
