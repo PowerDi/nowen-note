@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Phase 2: 实时协作（WebSocket Hub）
  *
  * 设计要点：
