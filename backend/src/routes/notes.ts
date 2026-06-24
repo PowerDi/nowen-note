@@ -474,6 +474,25 @@ app.put("/:id", async (c) => {
     }
   }
 
+  // P0: 空内容防护——非空内容被异常清空时拒绝，防止编辑器初始化/切换/同步竞态导致数据丢失。
+  // 用户主动清空文档时，前端会传 explicitClear=true。
+  if (body.content !== undefined && body.explicitClear !== true) {
+    const existing = db.prepare("SELECT content FROM notes WHERE id = ?").get(id) as { content: string } | undefined;
+    if (existing) {
+      const oldPlain = (existing.content || "").replace(/<[^>]+>/g, "").replace(/\s+/g, "").trim();
+      const newPlain = (body.content || "").replace(/<[^>]+>/g, "").replace(/\s+/g, "").trim();
+      if (oldPlain.length > 0 && newPlain.length === 0) {
+        console.warn("[notes.put] Blocked suspicious empty content update", {
+          noteId: id, userId, oldLen: existing.content.length, newLen: (body.content || "").length,
+        });
+        return c.json(
+          { error: "Blocked suspicious empty content update", code: "SUSPICIOUS_EMPTY_UPDATE" },
+          409,
+        );
+      }
+    }
+  }
+
   // 锁定保护：锁定状态下禁止修改内容（但允许切换 isLocked 本身和元数据操作）
   const contentFields = ["title", "content", "contentText", "notebookId"];
   const isContentChange = contentFields.some((f) => body[f] !== undefined);

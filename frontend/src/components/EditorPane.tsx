@@ -973,9 +973,27 @@ export default function EditorPane() {
     return () => document.removeEventListener("mousedown", handler);
   }, [showMobileMenu]);
 
-  const handleUpdate = useCallback(async (data: { content?: string; contentText?: string; title: string }) => {
+  const handleUpdate = useCallback(async (data: { content?: string; contentText?: string; title: string; _noteId?: string }) => {
     const currentNote = activeNoteRef.current;
     if (!currentNote || currentNote.isLocked || viewLockedIdsRef.current.has(currentNote.id)) return;
+
+    // P0: 如果调度时的 noteId 与当前 activeNote 不一致，说明已切换笔记，跳过保存
+    if (data._noteId && data._noteId !== currentNote.id) {
+      console.warn("[handleUpdate] noteId mismatch, skipping save", { scheduled: data._noteId, current: currentNote.id });
+      return;
+    }
+
+    // P0: 空内容防护——如果笔记原本有内容，但本次保存的内容为空/纯空白，跳过保存。
+    // 这防止编辑器初始化、setContent、远程更新等场景误触发的空内容覆盖。
+    // 用户主动清空文档时，content 会是 Tiptap 的空 doc JSON（不是空字符串），不受影响。
+    if (data.content !== undefined) {
+      const contentStr = typeof data.content === "string" ? data.content.trim() : "";
+      const existingContent = currentNote.content?.trim() || "";
+      if (contentStr.length === 0 && existingContent.length > 0) {
+        console.warn("[handleUpdate] blocked suspicious empty content save", { noteId: currentNote.id });
+        return;
+      }
+    }
 
     // ������ P2-5: ���زݸ�˫���� ����������������������������
     // ÿ�� onUpdate fire ��**ͬ��**дһ�ݲݸ嵽 localStorage��ֻҪ�����κλ���
