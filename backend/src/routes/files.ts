@@ -48,6 +48,7 @@ import {
 import {
   deleteAttachmentObject,
   getAttachmentStorageInfo,
+  getUploadMonthPath,
   readObjectStorageConfigPublic,
   writeAttachmentObject,
 } from "../services/attachment-storage";
@@ -1212,7 +1213,8 @@ app.post("/upload", requireWorkspaceFeature("files"), async (c) => {
   ensureAttachmentsDir();
   const id = uuid();
   const ext = pickExt(file.name, mime);
-  const storagePath = `${id}.${ext}`;
+  const monthPath = getUploadMonthPath();
+  const storagePath = `${monthPath}/${id}.${ext}`;
 
   let buffer: Buffer;
   try {

@@ -898,6 +898,42 @@ interface OrphanScanResult {
 }
 
 /**
+ * 递归扫描 ATTACHMENTS_DIR，返回所有物理文件的相对路径列表。
+ * 兼容两种存储格式：
+ *   - 旧平铺：<uuid>.<ext>
+ *   - 新月归档：YYYY/MM/<uuid>.<ext>
+ * 跳过隐藏目录（如 .thumbs/）。
+ */
+function listDiskFilesRecursive(): string[] {
+  const results: string[] = [];
+  function walk(dir: string, relPrefix: string) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.startsWith(".")) continue;
+      const abs = path.join(dir, entry);
+      const rel = relPrefix ? `${relPrefix}/${entry}` : entry;
+      try {
+        const stat = fs.statSync(abs);
+        if (stat.isFile()) {
+          results.push(rel);
+        } else if (stat.isDirectory()) {
+          walk(abs, rel);
+        }
+      } catch {
+        /* skip */
+      }
+    }
+  }
+  walk(ATTACHMENTS_DIR, "");
+  return results;
+}
+
+/**
  * 扫描孤儿附件。
  *
  * @param graceHours 内容孤儿的宽限期：createdAt 距今不足该小时数的附件不参与
@@ -907,23 +943,8 @@ export function scanOrphanAttachments(graceHours = 24): OrphanScanResult {
   ensureAttachmentsDir();
   const db = getDb();
 
-  // 1) 物理目录全部文件
-  // 跳过 .thumbs/ 这种隐藏子目录（v12 缩略图缓存）：isFile 已能挡住目录条目，
-  // 但对未来若把缩略图改成同目录平铺命名时多一层防御。
-  let diskFiles: string[] = [];
-  try {
-    diskFiles = fs.readdirSync(ATTACHMENTS_DIR).filter((f) => {
-      if (f.startsWith(".")) return false;
-      const abs = path.join(ATTACHMENTS_DIR, f);
-      try {
-        return fs.statSync(abs).isFile();
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    diskFiles = [];
-  }
+  // 1) 物理目录全部文件（递归扫描 YYYY/MM 子目录）
+  const diskFiles = listDiskFilesRecursive();
 
   let totalAttachmentBytes = 0;
   const fileSizes = new Map<string, number>();
@@ -1045,19 +1066,8 @@ export function scanAttachmentHealth(graceHours = 24): AttachmentHealthReport {
   const db = getDb();
   const orphans = scanOrphanAttachments(graceHours);
 
-  let diskFiles: string[] = [];
-  try {
-    diskFiles = fs.readdirSync(ATTACHMENTS_DIR).filter((f) => {
-      if (f.startsWith(".")) return false;
-      try {
-        return fs.statSync(path.join(ATTACHMENTS_DIR, f)).isFile();
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    diskFiles = [];
-  }
+  // 递归扫描物理目录，兼容 YYYY/MM 子目录
+  const diskFiles = listDiskFilesRecursive();
   const diskFileSet = new Set(diskFiles);
 
   const rows = db

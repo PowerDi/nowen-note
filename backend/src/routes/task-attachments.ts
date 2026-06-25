@@ -31,6 +31,7 @@ import { v4 as uuid } from "uuid";
 import { ensureAttachmentsDir, MIME_TO_EXT } from "./attachments";
 import {
   deleteAttachmentObject,
+  getUploadMonthPath,
   readAttachmentObject,
   writeAttachmentObject,
 } from "../services/attachment-storage";
@@ -155,7 +156,8 @@ app.post("/", async (c) => {
   ensureAttachmentsDir();
   const id = uuid();
   const ext = MIME_TO_EXT[mime] || "bin";
-  const filename = `${id}.${ext}`;
+  const monthPath = getUploadMonthPath();
+  const filename = `${monthPath}/${id}.${ext}`;
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
