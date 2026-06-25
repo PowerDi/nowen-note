@@ -126,8 +126,13 @@ app.post("/import-file", async (c) => {
   const syncComment = buildSyncComment(relativePath, sha256, sourcePathHash);
   const isText = isTextFile(filename);
   const isBinary = isBinaryFile(filename);
+  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+  const isHtml = [".html", ".htm"].includes(ext);
 
-  // 构建纯 Markdown 正文（不使用 JSON 包装）
+  // 确定 contentFormat
+  const contentFormat = isHtml ? "html" : "markdown";
+
+  // 构建正文
   let content: string;
   let finalContentText: string;
 
@@ -143,8 +148,6 @@ app.post("/import-file", async (c) => {
       `- 文件名：${filename}`,
       `- 相对路径：${relativePath}`,
       `- SHA-256：${sha256}`,
-      "",
-      "附件内容将在后续阶段支持上传。",
     ];
     content = lines.join("\n") + syncComment;
     finalContentText = content;
@@ -158,9 +161,9 @@ app.post("/import-file", async (c) => {
     // 更新已有笔记
     db.prepare(
       `UPDATE notes SET title = ?, content = ?, contentText = ?, notebookId = ?, workspaceId = ?,
-       contentFormat = 'markdown', version = version + 1, updatedAt = datetime('now')
+       contentFormat = ?, version = version + 1, updatedAt = datetime('now')
        WHERE id = ?`
-    ).run(title, content, finalContentText, targetNotebookId, workspaceId, updateNoteId);
+    ).run(title, content, finalContentText, targetNotebookId, workspaceId, contentFormat, updateNoteId);
 
     // 更新映射
     if (syncRow) {
@@ -187,8 +190,8 @@ app.post("/import-file", async (c) => {
   try {
     db.prepare(
       `INSERT INTO notes (id, userId, notebookId, workspaceId, title, content, contentText, contentFormat)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'markdown')`
-    ).run(noteId, userId, targetNotebookId, workspaceId, title, content, finalContentText);
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(noteId, userId, targetNotebookId, workspaceId, title, content, finalContentText, contentFormat);
   } catch (e: any) {
     if (String(e?.code || "").startsWith("SQLITE_CONSTRAINT")) {
       return c.json({ error: "笔记创建失败：ID 冲突", code: "ID_CONFLICT" }, 409);
@@ -232,6 +235,13 @@ app.post("/import-attachment", async (c) => {
     return c.json({ error: "relativePath 不安全", code: "UNSAFE_PATH" }, 400);
   }
 
+  // 限制文件类型
+  const ext = filename.slice(filename.lastIndexOf(".")).toLowerCase();
+  const allowedExts = [".pdf", ".docx"];
+  if (!allowedExts.includes(ext)) {
+    return c.json({ error: `不支持的文件类型: ${ext}`, code: "UNSUPPORTED_FILE_TYPE" }, 400);
+  }
+
   // 校验目标笔记本权限
   const nb = db.prepare("SELECT id, workspaceId, isDeleted FROM notebooks WHERE id = ?").get(targetNotebookId) as any;
   if (!nb) return c.json({ error: "目标笔记本不存在", code: "NOTEBOOK_NOT_FOUND" }, 404);
@@ -253,82 +263,119 @@ app.post("/import-attachment", async (c) => {
     });
   }
 
-  const title = filenameToTitle(filename);
-  const syncComment = buildSyncComment(relativePath, sha256, sourcePathHash);
-
-  // 读取文件内容
+  // 读取文件内容并验证 sha256
   const arrayBuffer = await file.arrayBuffer();
   const fileBuffer = Buffer.from(arrayBuffer);
-
-  // 创建或更新笔记
-  let noteId: string;
-  let isNew = false;
-
-  if (existingNoteId || syncRow) {
-    noteId = existingNoteId || syncRow!.noteId;
-    // 更新笔记
-    const content = `# ${title}\n\n此文件来自桌面端文件夹同步。\n\n- 文件名：${filename}\n- 相对路径：${relativePath}\n${syncComment}`;
-    db.prepare(`UPDATE notes SET title = ?, content = ?, contentText = ?, contentFormat = 'markdown', version = version + 1, updatedAt = datetime('now') WHERE id = ?`)
-      .run(title, content, content, noteId);
-  } else {
-    // 创建新笔记
-    noteId = uuid();
-    isNew = true;
-    const content = `# ${title}\n\n此文件来自桌面端文件夹同步。\n\n- 文件名：${filename}\n- 相对路径：${relativePath}\n${syncComment}`;
-    db.prepare(`INSERT INTO notes (id, userId, notebookId, workspaceId, title, content, contentText, contentFormat) VALUES (?, ?, ?, ?, ?, ?, ?, 'markdown')`)
-      .run(noteId, userId, targetNotebookId, nb.workspaceId, title, content, content);
+  const crypto = require("crypto");
+  const fileSha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+  if (fileSha256 !== sha256) {
+    return c.json({ error: "文件 sha256 不匹配", code: "HASH_MISMATCH" }, 400);
   }
 
-  // 保存附件文件
-  const { v4: uuidv4 } = require("uuid");
-  const attachmentId = uuidv4();
+  // 确定更新目标并校验权限
+  let updateNoteId: string | null = null;
+  let isNew = false;
+
+  if (existingNoteId) {
+    const target = db.prepare("SELECT id, userId, isTrashed FROM notes WHERE id = ?").get(existingNoteId) as any;
+    if (!target) return c.json({ error: "指定的笔记不存在", code: "NOTE_NOT_FOUND" }, 404);
+    if (target.userId !== userId) return c.json({ error: "无权修改他人的笔记", code: "FORBIDDEN" }, 403);
+    if (target.isTrashed === 1) return c.json({ error: "笔记已回收，无法更新", code: "NOTE_TRASHED" }, 400);
+    updateNoteId = existingNoteId;
+  } else if (syncRow) {
+    const target = db.prepare("SELECT id, userId, isTrashed FROM notes WHERE id = ?").get(syncRow.noteId) as any;
+    if (!target) {
+      // 旧映射指向不存在的笔记，清理并创建新笔记
+      db.prepare("DELETE FROM folder_sync_files WHERE id = ?").run(syncRow.id);
+    } else if (target.userId !== userId) {
+      return c.json({ error: "无权修改他人的笔记", code: "FORBIDDEN" }, 403);
+    } else if (target.isTrashed === 1) {
+      // 笔记已回收，创建新笔记
+    } else {
+      updateNoteId = syncRow.noteId;
+    }
+  }
+
+  const title = filenameToTitle(filename);
+  const syncComment = buildSyncComment(relativePath, sha256, sourcePathHash);
+  const content = `# ${title}\n\n此文件来自桌面端文件夹同步。\n\n- 文件名：${filename}\n- 相对路径：${relativePath}\n${syncComment}`;
+
+  // 附件保存目录
+  const pathMod = require("path");
+  const fs = require("fs");
   const now = new Date();
   const year = String(now.getFullYear());
   const month = String(now.getMonth() + 1).padStart(2, "0");
-  const path = require("path");
-  const fs = require("fs");
-  const crypto = require("crypto");
-
-  const attachmentsDir = process.env.NOWEN_DATA_DIR || path.join(process.cwd(), "data", "attachments");
-  const dir = path.join(attachmentsDir, year, month);
+  const baseDir = process.env.NOWEN_DATA_DIR || pathMod.join(process.cwd(), "data");
+  const attachmentsDir = pathMod.join(baseDir, "attachments");
+  const dir = pathMod.join(attachmentsDir, year, month);
   fs.mkdirSync(dir, { recursive: true });
 
-  const ext = path.extname(filename) || ".bin";
+  const attachmentId = uuid();
   const safeExt = ext.replace(/[^a-zA-Z0-9.]/g, "");
   const fileFullName = `${attachmentId}${safeExt}`;
-  const fullPath = path.join(dir, fileFullName);
+  const fullPath = pathMod.join(dir, fileFullName);
   const relativeAttachmentPath = `${year}/${month}/${fileFullName}`;
 
-  fs.writeFileSync(fullPath, fileBuffer);
+  let savedFile = false;
 
-  const fileSha256 = crypto.createHash("sha256").update(fileBuffer).digest("hex");
-
-  // 插入附件记录
-  db.prepare(`INSERT INTO attachments (id, userId, noteId, filename, mimeType, size, path, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-    .run(attachmentId, userId, noteId, filename, file.type || null, fileBuffer.length, relativeAttachmentPath);
-
-  // 更新同步映射
-  if (syncRow) {
-    db.prepare("UPDATE folder_sync_files SET sha256 = ?, relativePath = ?, filename = ?, updatedAt = datetime('now') WHERE id = ?")
-      .run(sha256, relativePath, filename, syncRow.id);
-  } else {
-    db.prepare("INSERT INTO folder_sync_files (id, userId, sourcePathHash, relativePath, filename, sha256, noteId) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(uuid(), userId, sourcePathHash, relativePath, filename, sha256, noteId);
-  }
-
-  // 广播更新
   try {
-    const updated = db.prepare("SELECT version, updatedAt FROM notes WHERE id = ?").get(noteId) as any;
-    broadcastNoteUpdated(noteId, {
-      version: updated.version, updatedAt: updated.updatedAt,
-      title, contentText: filename, actorUserId: userId,
-    });
-  } catch { /* ignore */ }
+    // 写入附件文件
+    fs.writeFileSync(fullPath, fileBuffer);
+    savedFile = true;
 
-  return c.json({
-    success: true, created: isNew, updated: !isNew, skipped: false,
-    noteId, attachmentId, sha256,
-  });
+    // 使用事务
+    db.exec("BEGIN TRANSACTION");
+
+    if (updateNoteId) {
+      // 更新已有笔记
+      db.prepare(`UPDATE notes SET title = ?, content = ?, contentText = ?, contentFormat = 'markdown', version = version + 1, updatedAt = datetime('now') WHERE id = ?`)
+        .run(title, content, content, updateNoteId);
+    } else {
+      // 创建新笔记
+      updateNoteId = uuid();
+      isNew = true;
+      db.prepare(`INSERT INTO notes (id, userId, notebookId, workspaceId, title, content, contentText, contentFormat) VALUES (?, ?, ?, ?, ?, ?, ?, 'markdown')`)
+        .run(updateNoteId, userId, targetNotebookId, nb.workspaceId, title, content, content);
+    }
+
+    // 插入附件记录
+    db.prepare(`INSERT INTO attachments (id, userId, noteId, filename, mimeType, size, path, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+      .run(attachmentId, userId, updateNoteId, filename, file.type || null, fileBuffer.length, relativeAttachmentPath);
+
+    // 更新同步映射
+    if (syncRow) {
+      db.prepare("UPDATE folder_sync_files SET sha256 = ?, relativePath = ?, filename = ?, noteId = ?, updatedAt = datetime('now') WHERE id = ?")
+        .run(sha256, relativePath, filename, updateNoteId, syncRow.id);
+    } else {
+      db.prepare("INSERT INTO folder_sync_files (id, userId, sourcePathHash, relativePath, filename, sha256, noteId) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        .run(uuid(), userId, sourcePathHash, relativePath, filename, sha256, updateNoteId);
+    }
+
+    db.exec("COMMIT");
+
+    // 广播更新
+    try {
+      const updated = db.prepare("SELECT version, updatedAt FROM notes WHERE id = ?").get(updateNoteId) as any;
+      broadcastNoteUpdated(updateNoteId, {
+        version: updated.version, updatedAt: updated.updatedAt,
+        title, contentText: filename, actorUserId: userId,
+      });
+    } catch { /* ignore */ }
+
+    return c.json({
+      success: true, created: isNew, updated: !isNew, skipped: false,
+      noteId: updateNoteId, attachmentId, sha256,
+    });
+  } catch (err: any) {
+    // 回滚事务
+    try { db.exec("ROLLBACK"); } catch {}
+    // 清理已写入文件
+    if (savedFile) {
+      try { fs.unlinkSync(fullPath); } catch { /* ignore */ }
+    }
+    throw err;
+  }
 });
 
 /**

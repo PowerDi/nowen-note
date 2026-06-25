@@ -438,6 +438,7 @@ function getIndex(folderId) {
 // ---------- 待上传文件列表（方案 A：renderer 负责上传） ----------
 
 const TEXT_EXTS = new Set([".md", ".txt", ".markdown", ".html", ".htm"]);
+const BINARY_UPLOAD_EXTS = new Set([".pdf", ".docx"]);
 const MAX_CONTENT_BYTES = 2 * 1024 * 1024; // 2MB
 
 function computeSourcePathHash(folderId, relativePath) {
@@ -445,8 +446,9 @@ function computeSourcePathHash(folderId, relativePath) {
 }
 
 /**
- * 返回需要上传的文本文件列表（status=new/changed 且为文本类型）。
- * renderer 收到后用 api.folderSync.importFile 逐个上传。
+ * 返回需要上传的文件列表（status=new/changed）。
+ * 文本文件：md/txt/html，读取 contentText。
+ * 附件文件：pdf/docx，contentText=null，通过 getUploadFile 单独读取。
  */
 function getPendingUploads(folderId) {
   const configs = readConfigs();
@@ -460,9 +462,11 @@ function getPendingUploads(folderId) {
     if (item.status !== "new" && item.status !== "changed") continue;
 
     const ext = path.extname(item.relativePath).toLowerCase();
-    if (!TEXT_EXTS.has(ext)) continue;
+    const isText = TEXT_EXTS.has(ext);
+    const isBinary = BINARY_UPLOAD_EXTS.has(ext);
+    if (!isText && !isBinary) continue;
 
-    // 读取文本内容（安全校验：确保路径在 folderPath 内）
+    // 安全校验：确保路径在 folderPath 内
     const fullPath = path.join(config.folderPath, item.relativePath.replace(/\//g, path.sep));
     const resolvedPath = path.resolve(fullPath);
     const resolvedBase = path.resolve(config.folderPath);
@@ -482,6 +486,24 @@ function getPendingUploads(folderId) {
       continue;
     }
 
+    // 附件文件（pdf/docx）：不读取内容，通过 getUploadFile 单独读取
+    if (isBinary) {
+      pending.push({
+        relativePath: item.relativePath,
+        filename: path.basename(item.relativePath),
+        sha256: item.sha256,
+        sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
+        size: item.size,
+        mtimeMs: item.mtimeMs,
+        ext,
+        contentText: null,
+        existingNoteId: item.noteId || null,
+        skipReason: null,
+      });
+      continue;
+    }
+
+    // 文本文件：读取内容
     let contentText;
     try {
       const stat = fs.statSync(fullPath);
@@ -521,7 +543,7 @@ function getPendingUploads(folderId) {
       relativePath: item.relativePath,
       filename: path.basename(item.relativePath),
       sha256: item.sha256,
-      sourcePathHash: computeSourcePathHash(item.relativePath),
+      sourcePathHash: computeSourcePathHash(folderId, item.relativePath),
       size: item.size,
       mtimeMs: item.mtimeMs,
       ext,
@@ -535,7 +557,7 @@ function getPendingUploads(folderId) {
 }
 
 /**
- * renderer 上传成功后回调，写回 noteId / lastSyncedAt / status。
+ * renderer 上传成功后回调，写回 noteId / attachmentId / lastSyncedAt / status。
  *
  * result.skipped === true  → status="skipped"（超限/文件不可读等，非网络错误）
  * result.success === true  → status="synced"
@@ -550,11 +572,13 @@ function markUploadResult(folderId, relativePath, result) {
   if (result.skipped) {
     item.status = "skipped";
     item.noteId = result.noteId || item.noteId;
+    item.attachmentId = result.attachmentId || item.attachmentId;
     item.lastSyncedAt = now;
     item.error = result.error || "Skipped";
   } else if (result.success) {
     item.status = "synced";
     item.noteId = result.noteId;
+    item.attachmentId = result.attachmentId || item.attachmentId;
     item.lastSyncedAt = now;
     item.error = undefined;
   } else {
