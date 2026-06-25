@@ -1488,30 +1488,6 @@ export const api = {
   },
 
   // Image Hosting
-      const token = getToken();
-      const form = new FormData();
-      form.append("file", payload.file);
-      form.append("sourcePathHash", payload.sourcePathHash);
-      form.append("relativePath", payload.relativePath);
-      form.append("filename", payload.filename);
-      form.append("sha256", payload.sha256);
-      form.append("targetNotebookId", payload.targetNotebookId);
-      if (payload.existingNoteId) form.append("existingNoteId", payload.existingNoteId);
-      const res = await fetch(`${getBaseUrl()}/folder-sync/import-attachment`, {
-        method: "POST",
-        credentials: "include",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: form,
-      });
-      const data = await res.json() as {
-        success: boolean; created: boolean; updated: boolean; skipped: boolean;
-        noteId: string; attachmentId?: string; sha256: string;
-        extracted?: boolean; extractedChars?: number; extractionTruncated?: boolean;
-        extractionError?: string; noText?: boolean;
-      };
-      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-      return data;
-    },
     /** 批量检查 sourcePathHash 是否已有导入记录 */
     checkDedup: (sourcePathHashes: string[]) =>
       request<Record<string, string>>("/folder-sync/check-dedup", {
