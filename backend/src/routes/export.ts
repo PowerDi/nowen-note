@@ -371,7 +371,7 @@ app.get("/nowen-package", async (c) => {
       includeTrashed,
     });
 
-    return new Response(result.buffer, {
+    return new Response(new Uint8Array(result.buffer), {
       status: 200,
       headers: {
         "Content-Type": "application/zip",
@@ -434,11 +434,14 @@ app.post("/import/nowen-package", async (c) => {
     // 广播刷新事件
     if (!dryRun && result.success) {
       try {
-        broadcastToUser(userId, "notes:imported", {
-          rootNotebookId: result.rootNotebookId,
-          counts: result.counts,
-        });
-        broadcastToUser(userId, "notebooks:changed", {});
+        broadcastToUser(userId, {
+          type: "notes:imported",
+          payload: {
+            rootNotebookId: result.rootNotebookId,
+            counts: result.counts,
+          },
+        } as any);
+        broadcastToUser(userId, { type: "notebooks:changed", payload: {} } as any);
       } catch {}
     }
 

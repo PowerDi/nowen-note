@@ -19,6 +19,7 @@ export interface ImageHostingConfig {
   region: string;
   bucket: string;
   accessKeyId: string;
+  secretAccessKey: string;
   publicBaseUrl: string;
   pathPrefix: string;
   usePathStyle: boolean;
@@ -351,7 +352,7 @@ export async function uploadImageToHosting(
     const res = await fetch(url, {
       method: "PUT",
       headers,
-      body: buffer,
+      body: new Uint8Array(buffer),
     });
 
     if (!res.ok) {
