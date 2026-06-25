@@ -339,9 +339,9 @@ app.post("/import-attachment", async (c) => {
         .run(updateNoteId, userId, targetNotebookId, nb.workspaceId, title, content, content);
     }
 
-    // 插入附件记录
-    db.prepare(`INSERT INTO attachments (id, userId, noteId, filename, mimeType, size, path, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
-      .run(attachmentId, userId, updateNoteId, filename, file.type || null, fileBuffer.length, relativeAttachmentPath);
+    // 插入附件记录（与主附件上传保持一致：含 workspaceId、hash、uploadSource）
+    db.prepare(`INSERT INTO attachments (id, userId, noteId, filename, mimeType, size, path, workspaceId, hash, uploadSource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'folder_sync')`)
+      .run(attachmentId, userId, updateNoteId, filename, file.type || null, fileBuffer.length, relativeAttachmentPath, nb.workspaceId, fileSha256);
 
     // 更新同步映射
     if (syncRow) {
