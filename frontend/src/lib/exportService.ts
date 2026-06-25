@@ -599,6 +599,95 @@ async function inlineRemoteImages(
 //   文件系统而不是 attachments 接口）。这是 P1-1 的"导出半边"实现，闭环要等导入侧
 //   改造。即便如此，用户已经能在 zip 里看到原始附件文件，满足"备份完整性"诉求。
 // ============================================================================
+
+/**
+ * 处理 Markdown 原生笔记中的附件引用。
+ *
+ * 支持语法：
+ *   - ![alt](/api/attachments/<id>)
+ *   - ![alt](http://host/api/attachments/<id>)
+ *   - [filename](/api/attachments/<id>)
+ *   - [filename](http://host/api/attachments/<id>)
+ *
+ * 行为：
+ *   - 图片附件：下载到 assets/，替换为 ./assets/<file>
+ *   - 非图片附件：下载到 assets/，替换为 ./assets/<file>
+ *   - 下载失败：记录到 stats.failures，保留原始路径
+ */
+async function processMarkdownAttachments(
+  md: string,
+  registry: Map<string, string>,
+  stats: ImgStats,
+  noteContext?: { noteId?: string; noteTitle?: string },
+): Promise<{ content: string; images: ExtractedImage[] }> {
+  if (!md || !/\/api\/attachments\//i.test(md)) {
+    return { content: md, images: [] };
+  }
+
+  const images: ExtractedImage[] = [];
+  // 匹配 Markdown 链接/图片语法：![alt](url) 或 [text](url)
+  const linkRe = /(!?\[[^\]]*\])\(([^)]+)\)/g;
+  const tasks: { fullMatch: string; prefix: string; url: string }[] = [];
+  let m: RegExpExecArray | null;
+
+  while ((m = linkRe.exec(md)) !== null) {
+    const url = m[2].trim();
+    if (!isAttachmentUrl(url)) continue;
+    if (/^\.\/?assets\//i.test(url)) continue;
+    tasks.push({ fullMatch: m[0], prefix: m[1], url });
+  }
+
+  const replacements = new Map<string, string>();
+
+  await Promise.all(
+    tasks.map(async (task) => {
+      const absUrl = toAbsoluteUrl(task.url);
+      const cachedPath = registry.get(absUrl);
+      if (cachedPath) {
+        replacements.set(task.fullMatch, `${task.prefix}(${cachedPath})`);
+        return;
+      }
+
+      try {
+        const resp = await fetch(absUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const blob = await resp.blob();
+        const ext = detectExtFromResponse(blob.type, absUrl);
+        const hash = await blobToHash(blob);
+        const fileName = `${hash}.${ext}`;
+        const relPath = `./assets/${fileName}`;
+
+        if (!registry.has(absUrl)) {
+          registry.set(absUrl, relPath);
+          const base64 = await blobToBase64(blob);
+          images.push({ relPath: `assets/${fileName}`, base64, hash });
+        }
+
+        replacements.set(task.fullMatch, `${task.prefix}(${relPath})`);
+        stats.ok++;
+      } catch (err) {
+        stats.failed++;
+        stats.failures.push({
+          src: normalizeAttachmentSrc(task.url),
+          noteId: noteContext?.noteId,
+          noteTitle: noteContext?.noteTitle,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        // 失败时保留相对路径，去掉可能失效的 host
+        replacements.set(task.fullMatch, `${task.prefix}(${normalizeAttachmentSrc(task.url)})`);
+      }
+    }),
+  );
+
+  // 应用替换
+  let result = md;
+  for (const [from, to] of replacements) {
+    result = result.split(from).join(to);
+  }
+
+  return { content: result, images };
+}
+
 async function fetchRemoteAttachments(
   html: string,
   registry: Map<string, string>,
@@ -891,6 +980,9 @@ export async function exportAllNotes(
     // P0-2：同时收集失败明细（src + noteId + error），供 zip 根目录写出 export-warnings.json
     const imgStats: ImgStats = { ok: 0, failed: 0, failures: [] };
 
+    // 格式统计
+    const formatStats = { markdown: 0, richText: 0, html: 0 };
+
     for (let i = 0; i < notes.length; i++) {
       const note = notes[i];
       onProgress?.({ phase: "converting", current: i + 1, total, message: i18n.t('export.converting', { title: note.title }) });
@@ -899,23 +991,28 @@ export async function exportAllNotes(
       const folder = note.notebookName ? sanitizeFilename(note.notebookName) : i18n.t('export.uncategorized');
 
       let markdown: string;
+      let extractedImages: ExtractedImage[] = [];
+
+      // 统计格式
+      if (note.contentFormat === "markdown") formatStats.markdown++;
+      else if (note.contentFormat === "html") formatStats.html++;
+      else formatStats.richText++;
 
       // P0: Markdown 原生笔记直接导出 content 原文，不走 HTML → Markdown 转换
       if (note.contentFormat === "markdown") {
         markdown = note.content || note.contentText || "";
 
-        // Markdown 笔记中的图片引用也需要处理
+        // Markdown 笔记中的附件引用需要处理
         if (!inlineImages && markdown) {
           let registry = perFolderRegistry.get(folder);
           if (!registry) {
             registry = new Map();
             perFolderRegistry.set(folder, registry);
           }
-          // 下载 /api/attachments/<id> 图片并替换为 ./assets/ 相对路径
-          const r = await fetchRemoteImages(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-          markdown = r.html; // fetchRemoteImages 返回的 html 字段实际是处理后的内容
-          const r3 = await fetchRemoteAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-          markdown = r3.html;
+          // 处理 Markdown 语法中的 ![alt](/api/attachments/<id>) 和 [text](/api/attachments/<id>)
+          const r = await processMarkdownAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          markdown = r.content;
+          extractedImages = r.images;
         } else if (inlineImages && markdown) {
           markdown = await inlineRemoteImages(markdown, imgStats, { noteId: note.id, noteTitle: note.title });
         }
@@ -923,8 +1020,6 @@ export async function exportAllNotes(
         // 富文本笔记：Tiptap JSON → HTML → Markdown
         let html = noteContentToHtml(note.content, note.contentText);
 
-        // —— 图片抽取：默认把 data:image 拆到 <folder>/assets/ ——
-        let extractedImages: ExtractedImage[] = [];
         if (!inlineImages && html) {
           let registry = perFolderRegistry.get(folder);
           if (!registry) {
@@ -935,12 +1030,10 @@ export async function exportAllNotes(
           html = r.html;
           extractedImages = r.images;
 
-          // 再把指向 /api/attachments/<id> 的图片下载下来并替换 src
           const r2 = await fetchRemoteImages(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
           html = r2.html;
           extractedImages = extractedImages.concat(r2.images);
 
-          // P1-1：同步拉取本笔记中的非图附件（PDF / docx / 音视频等）
           const r3 = await fetchRemoteAttachments(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
           html = r3.html;
           extractedImages = extractedImages.concat(r3.assets);
@@ -948,7 +1041,6 @@ export async function exportAllNotes(
           html = await inlineRemoteImages(html, imgStats, { noteId: note.id, noteTitle: note.title });
         }
 
-        // 转换为 Markdown
         markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       }
 
@@ -998,6 +1090,7 @@ export async function exportAllNotes(
         notebooks: Array.from(folderCounts.entries()).map(([name, count]) => ({ name, count })),
         // P0-2：汇总在 metadata 里，快速看总体；明细看 export-warnings.json
         imageStats: { ok: imgStats.ok, failed: imgStats.failed },
+        formatStats,
       }, null, 2)
     );
 
@@ -1129,43 +1222,71 @@ export async function exportNotebook(
     // P0-2：与全量导出一致，收集失败明细供写 export-warnings.json
     const imgStats: ImgStats = { ok: 0, failed: 0, failures: [] };
 
+    // 格式统计
+    const formatStats = { markdown: 0, richText: 0, html: 0 };
+
     for (let i = 0; i < notes.length; i++) {
       const note = notes[i];
       onProgress?.({ phase: "converting", current: i + 1, total, message: i18n.t('export.converting', { title: note.title }) });
 
-      let html = noteContentToHtml(note.content, note.contentText);
       const folder = note.notebookName ? sanitizeFilename(note.notebookName) : sanitizeFilename(notebookName);
 
+      let markdown: string;
       let extractedImages: ExtractedImage[] = [];
-      if (!inlineImages && html) {
-        let registry = perFolderRegistry.get(folder);
-        if (!registry) {
-          registry = new Map();
-          perFolderRegistry.set(folder, registry);
+
+      // 统计格式
+      if (note.contentFormat === "markdown") formatStats.markdown++;
+      else if (note.contentFormat === "html") formatStats.html++;
+      else formatStats.richText++;
+
+      // P0: Markdown 原生笔记直接导出 content 原文
+      if (note.contentFormat === "markdown") {
+        markdown = note.content || note.contentText || "";
+
+        if (!inlineImages && markdown) {
+          let registry = perFolderRegistry.get(folder);
+          if (!registry) {
+            registry = new Map();
+            perFolderRegistry.set(folder, registry);
+          }
+          const r = await processMarkdownAttachments(markdown, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          markdown = r.content;
+          extractedImages = r.images;
+        } else if (inlineImages && markdown) {
+          markdown = await inlineRemoteImages(markdown, imgStats, { noteId: note.id, noteTitle: note.title });
         }
-        const r = await extractDataImages(html, registry);
-        html = r.html;
-        extractedImages = r.images;
+      } else {
+        // 富文本笔记：Tiptap JSON → HTML → Markdown
+        let html = noteContentToHtml(note.content, note.contentText);
 
-        const r2 = await fetchRemoteImages(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-        html = r2.html;
-        extractedImages = extractedImages.concat(r2.images);
+        if (!inlineImages && html) {
+          let registry = perFolderRegistry.get(folder);
+          if (!registry) {
+            registry = new Map();
+            perFolderRegistry.set(folder, registry);
+          }
+          const r = await extractDataImages(html, registry);
+          html = r.html;
+          extractedImages = r.images;
 
-        // P1-1：同步拉取本笔记中的非图附件（PDF / docx / 音视频等）
-        // 复用同一个 registry 与 imgStats：与图片共享去重与失败明细。
-        const r3 = await fetchRemoteAttachments(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
-        html = r3.html;
-        extractedImages = extractedImages.concat(r3.assets);
-      } else if (inlineImages && html) {
-        // inline 模式：把 /api/attachments/<id> 全部抓回来内嵌成 data URI，
-        // 见 inlineRemoteImages 注释。
-        html = await inlineRemoteImages(html, imgStats, { noteId: note.id, noteTitle: note.title });
+          const r2 = await fetchRemoteImages(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          html = r2.html;
+          extractedImages = extractedImages.concat(r2.images);
+
+          const r3 = await fetchRemoteAttachments(html, registry, imgStats, { noteId: note.id, noteTitle: note.title });
+          html = r3.html;
+          extractedImages = extractedImages.concat(r3.assets);
+        } else if (inlineImages && html) {
+          html = await inlineRemoteImages(html, imgStats, { noteId: note.id, noteTitle: note.title });
+        }
+
+        markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       }
 
-      const markdown = html ? postProcessMarkdown(td.turndown(html)) : "";
       const frontmatter = [
         "---",
         `title: "${note.title.replace(/"/g, '\\"')}"`,
+        `contentFormat: "${note.contentFormat || 'tiptap-json'}"`,
         `created: ${note.createdAt}`,
         `updated: ${note.updatedAt}`,
         "---",
@@ -1203,6 +1324,7 @@ export async function exportNotebook(
         totalNotes: total,
         notebooks: Array.from(folderCounts.entries()).map(([name, count]) => ({ name, count })),
         imageStats: { ok: imgStats.ok, failed: imgStats.failed },
+        formatStats,
       }, null, 2)
     );
 
