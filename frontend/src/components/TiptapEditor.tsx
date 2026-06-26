@@ -1253,8 +1253,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   });
   // 光标在表格内时的表格操作气泡（合并/拆分/增删行列等）
   // 与文本/图片气泡互斥：选中图片或选中非空文本时不显示表格气泡
-  const [tableBubble, setTableBubble] = useState<{ open: boolean; top: number; left: number }>({
-    open: false, top: 0, left: 0,
+  const [tableBubble, setTableBubble] = useState<{ open: boolean; top: number; left: number; cellText: string }>({
+    open: false, top: 0, left: 0, cellText: "",
   });
   // 调整表格尺寸对话框：按行列差值调用 addRow/deleteRow + addColumn/deleteColumn
   // initialRows/Cols 是打开对话框时的当前表格尺寸
@@ -2622,11 +2622,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           } catch { /* ignore */ }
           if (cellEl) {
             const cellRect = cellEl.getBoundingClientRect();
-            // 表格气泡较宽，估 360；放上方，放不下时降到下方（placeBubble 已处理）
             const { top } = placeBubble(cellRect, 40, 360);
             const cx = cellRect.left + cellRect.width / 2;
             const left = Math.max(8, Math.min(cx - 180, window.innerWidth - 370));
-            setTableBubble({ open: true, top, left });
+            const cellText = cellEl.textContent?.trim() || "";
+            setTableBubble({ open: true, top, left, cellText });
           } else {
             setTableBubble(b => b.open ? { ...b, open: false } : b);
           }
@@ -2693,7 +2693,15 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         const { top } = placeBubble(rect, 40, 360);
         const cx = rect.left + rect.width / 2;
         const left = Math.max(8, Math.min(cx - 180, window.innerWidth - 370));
-        setTableBubble({ open: true, top, left });
+        // TABLE-CELL-SMART-ACTIONS-01: 提取选区所在单元格文本
+        let cellText = "";
+        try {
+          const dom = view.domAtPos(from).node as Node | null;
+          const el = dom instanceof Element ? dom : dom?.parentElement ?? null;
+          const cell = el?.closest?.("td, th") as HTMLElement | null;
+          cellText = cell?.textContent?.trim() || "";
+        } catch { /* ignore */ }
+        setTableBubble({ open: true, top, left, cellText });
       } else {
         setTableBubble(b => b.open ? { ...b, open: false } : b);
       }
@@ -4029,12 +4037,41 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       {/* 选区气泡菜单：表格操作（行/列/合并/拆分/表头/删除）
           光标停在表格内（空选区）时浮出，按钮直接调 Tiptap 内置命令。
           合并/拆分依赖 CellSelection——用户必须先按住鼠标拖选多个单元格再点合并。 */}
-      {editor && editable && tableBubble.open && (
+      {editor && editable && tableBubble.open && (() => {
+        // TABLE-CELL-SMART-ACTIONS-01: 检测单元格中的手机号
+        const phoneMatch = tableBubble.cellText.match(/(?:\+86[\s-]?)?1[3-9]\d{9}/);
+        const phone = phoneMatch ? phoneMatch[0].replace(/[\s-]/g, "").replace(/^\+86/, "") : null;
+
+        return (
         <div
           className="fixed z-50 flex items-center gap-px bg-app-elevated border border-app-border rounded-lg shadow-lg p-0.5"
           style={{ top: tableBubble.top, left: tableBubble.left }}
           onMouseDown={(e) => e.preventDefault()}
         >
+          {/* 智能操作：手机号 → 复制 / 拨打 / 短信 */}
+          {phone && (
+            <>
+              <ToolbarButton compact
+                title={t("tiptap.cellCopyPhone", { defaultValue: "复制号码" })}
+                onClick={() => { navigator.clipboard.writeText(phone); }}
+              >
+                <span className="text-[11px] px-0.5">📋</span>
+              </ToolbarButton>
+              <ToolbarButton compact
+                title={t("tiptap.cellCallPhone", { defaultValue: "拨打电话" })}
+                onClick={() => { window.open(`tel:${phone}`, "_self"); }}
+              >
+                <span className="text-[11px] px-0.5">📞</span>
+              </ToolbarButton>
+              <ToolbarButton compact
+                title={t("tiptap.cellSmsPhone", { defaultValue: "发短信" })}
+                onClick={() => { window.open(`sms:${phone}`, "_self"); }}
+              >
+                <span className="text-[11px] px-0.5">💬</span>
+              </ToolbarButton>
+              <div className="w-px h-3 bg-app-border mx-0.5" />
+            </>
+          )}
           <ToolbarButton compact
             title={t("tiptap.addRowBefore")}
             onClick={() => editor.chain().focus().addRowBefore().run()}
@@ -4127,7 +4164,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             <Trash2 size={14} className="text-red-500" />
           </ToolbarButton>
         </div>
-      )}
+        );
+      })()}
 
       {/* 调整表格尺寸对话框 */}
       <TableResizeDialog
