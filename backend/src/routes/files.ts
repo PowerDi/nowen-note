@@ -133,6 +133,8 @@ interface FileRow {
   notebookIcon: string | null;
   isTrashed: number | null;
   hash: string | null;
+  folderId: string | null;
+  folderName: string | null;
 }
 
 interface FileOut {
@@ -154,6 +156,9 @@ interface FileOut {
   thumbnailUrl?: string;
   /** SHA-256 hex；v11 之前的老附件可能为 null（懒迁移）。 */
   hash: string | null;
+  /** 附件文件夹（attachment_folders）。未归档时为 null。 */
+  folderId: string | null;
+  folderName: string | null;
   /** 首次归属的笔记（attachments.noteId）。被删除或不存在时为 null。 */
   primaryNote: {
     id: string;
@@ -192,6 +197,8 @@ function toFileOut(row: FileRow): FileOut {
     category: isImg ? "image" : "file",
     url: `/api/attachments/${row.id}`,
     hash: row.hash ?? null,
+    folderId: row.folderId ?? null,
+    folderName: row.folderName ?? null,
     primaryNote: row.noteId
       ? {
           id: row.noteId,
@@ -383,6 +390,7 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
   //   3) 文件管理直传后又被本笔记引用的。
   // 与 filter / category / mime / q 全部正交，可叠加（例如"本笔记里的图片"）。
   const noteIdFilter = c.req.query("noteId") || "";
+  const folderIdParam = c.req.query("folderId") || "";
   const q = (c.req.query("q") || "").trim();
   const sort = c.req.query("sort") || "created_desc";
   const page = Math.max(1, Number(c.req.query("page") || 1));
@@ -433,6 +441,18 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
       "EXISTS(SELECT 1 FROM attachment_references ar WHERE ar.attachmentId = a.id AND ar.noteId = ?)",
     );
     params.push(noteIdFilter);
+  }
+
+  // folderId：按附件文件夹筛选
+  //   folderId=<id>        → 指定文件夹下的附件
+  //   folderId=__unarchived → folderId IS NULL（未归档文件）
+  if (folderIdParam) {
+    if (folderIdParam === "__unarchived") {
+      whereParts.push("a.folderId IS NULL");
+    } else {
+      whereParts.push("a.folderId = ?");
+      params.push(folderIdParam);
+    }
   }
 
   // filter=unreferenced：把 orphan id 集合注入 WHERE
@@ -524,12 +544,14 @@ app.get("/", requireWorkspaceFeature("files"), (c) => {
   const rows = db
     .prepare(
       `SELECT a.id, a.filename, a.mimeType, a.size, a.path, a.createdAt, a.hash,
-              a.noteId,
+              a.noteId, a.folderId,
               n.title AS noteTitle, n.notebookId, n.isTrashed,
-              nb.name AS notebookName, nb.icon AS notebookIcon
+              nb.name AS notebookName, nb.icon AS notebookIcon,
+              af.name AS folderName
          FROM attachments a
          LEFT JOIN notes n ON n.id = a.noteId
          LEFT JOIN notebooks nb ON nb.id = n.notebookId
+         LEFT JOIN attachment_folders af ON af.id = a.folderId
         WHERE ${whereSql}
         ORDER BY ${orderSql}
         LIMIT ? OFFSET ?`,

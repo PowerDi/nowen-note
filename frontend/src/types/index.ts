@@ -313,6 +313,10 @@ export interface FileItem {
    * （懒迁移策略，不强制回填）。仅在文件管理详情视图里供"复制 hash / 排查重复"用。
    */
   hash: string | null;
+  /** 附件文件夹 ID。未归档时为 null。 */
+  folderId: string | null;
+  /** 附件文件夹名称。未归档时为 null。 */
+  folderName: string | null;
   primaryNote: {
     id: string;
     title: string;

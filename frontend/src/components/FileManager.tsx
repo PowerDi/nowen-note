@@ -269,10 +269,13 @@ export default function FileManager() {
   //          图床模式下强制 grid（见 toggleImageHostMode）。
   const [viewMode, setViewMode] = useState<"grid" | "list">("list");
 
-  // 分组模式：扁平列表 vs 按笔记本分组
-  const [groupMode, setGroupMode] = useState<"flat" | "notebook">(() => {
-    try { return (localStorage.getItem("nowen-file-group") as "flat" | "notebook") || "flat"; } catch { return "flat"; }
+  // 分组模式：扁平列表 vs 按笔记本分组 vs 按附件文件夹分组
+  const [groupMode, setGroupMode] = useState<"flat" | "notebook" | "folder">(() => {
+    try { return (localStorage.getItem("nowen-file-group") as "flat" | "notebook" | "folder") || "flat"; } catch { return "flat"; }
   });
+
+  // 附件文件夹列表（groupMode === "folder" 时使用）
+  const [attachmentFolders, setAttachmentFolders] = useState<Array<{ id: string; name: string; fileCount: number }>>([]);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => {
     try {
       const raw = localStorage.getItem("nowen-file-collapsed-groups");
@@ -361,6 +364,18 @@ export default function FileManager() {
     loadStats();
     loadReclaimable();
   }, [loadStats, loadReclaimable]);
+
+  // ---- 加载附件文件夹列表 ----
+  const loadFolders = useCallback(async () => {
+    try {
+      const res = await api.attachmentFolders.list();
+      setAttachmentFolders(res.folders || []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => { loadFolders(); }, [loadFolders]);
 
   // ---- 拉列表（受 category / sort / searchQuery / page 驱动）----
   const loadList = useCallback(async () => {
@@ -953,9 +968,9 @@ export default function FileManager() {
     });
   }, [items]);
 
-  // 按笔记本分组（groupMode === "notebook" 时使用）
+  // 按笔记本分组 或 按附件文件夹分组
   const groupedItems = useMemo(() => {
-    if (groupMode !== "notebook") return null;
+    if (groupMode !== "notebook" && groupMode !== "folder") return null;
     // 先按 attachment.id 去重，防止接口返回重复数据导致分组重复渲染
     const seen = new Set<string>();
     const deduped = items.filter((it) => {
@@ -964,6 +979,26 @@ export default function FileManager() {
       return true;
     });
     const groups = new Map<string, { label: string; icon: string | null; items: typeof deduped }>();
+
+    if (groupMode === "folder") {
+      // 按附件文件夹分组
+      for (const it of deduped) {
+        const fId = it.folderId || null;
+        const fName = it.folderName || null;
+        const key = fId || "__unarchived__";
+        const label = fName || "未归档文件";
+        if (!groups.has(key)) groups.set(key, { label, icon: null, items: [] });
+        groups.get(key)!.items.push(it);
+      }
+      // 排序："未归档文件"放最后，其他按名称
+      return [...groups.entries()].sort(([aKey, a], [bKey, b]) => {
+        if (aKey === "__unarchived__" && bKey !== "__unarchived__") return 1;
+        if (aKey !== "__unarchived__" && bKey === "__unarchived__") return -1;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    // 按笔记本分组
     for (const it of deduped) {
       const nbId = it.primaryNote?.notebookId || null;
       const nbName = it.primaryNote?.notebookName || null;
@@ -1118,7 +1153,7 @@ export default function FileManager() {
           </div>
         )}
 
-        {/* 分组切换：扁平列表 vs 按笔记本分组 */}
+        {/* 分组切换：扁平 / 按笔记本 / 按文件夹 */}
         {!isImageHostMode && (
           <div className="hidden md:flex items-center rounded-lg border border-app-border bg-app-bg p-0.5">
             <button
@@ -1138,6 +1173,16 @@ export default function FileManager() {
               )}
               onClick={() => { setGroupMode("notebook"); localStorage.setItem("nowen-file-group", "notebook"); }}
               title="按笔记本分组"
+            >
+              <FolderOpen size={14} />
+            </button>
+            <button
+              className={cn(
+                "px-2 py-1 rounded-md text-xs flex items-center gap-1 transition-colors",
+                groupMode === "folder" ? "bg-accent-primary/15 text-accent-primary" : "text-tx-secondary hover:bg-app-hover",
+              )}
+              onClick={() => { setGroupMode("folder"); localStorage.setItem("nowen-file-group", "folder"); }}
+              title="按文件夹分组"
             >
               <FolderOpen size={14} />
             </button>
@@ -1596,7 +1641,7 @@ export default function FileManager() {
       <FileUploadDialog
         open={uploadDialogOpen}
         onClose={() => setUploadDialogOpen(false)}
-        onUploaded={() => { invalidateFileListCache(); loadList(); loadStats(); loadReclaimable(); }}
+        onUploaded={() => { invalidateFileListCache(); loadList(); loadStats(); loadReclaimable(); loadFolders(); }}
         defaultFolderId={null}
       />
     </div>

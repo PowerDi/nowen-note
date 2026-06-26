@@ -1948,6 +1948,8 @@ export const api = {
       notebookId?: string;
       /** 仅返回"被该笔记引用过"的附件（走 attachment_references 倒排表）。 */
       noteId?: string;
+      /** 按附件文件夹筛选。传 "__unarchived" 表示未归档文件。 */
+      folderId?: string;
       q?: string;
       sort?: FileSortKey;
       order?: "asc" | "desc";
@@ -1968,6 +1970,7 @@ export const api = {
       if (params.mime) qs.set("mime", params.mime);
       if (params.notebookId) qs.set("notebookId", params.notebookId);
       if (params.noteId) qs.set("noteId", params.noteId);
+      if (params.folderId) qs.set("folderId", params.folderId);
       if (params.q) qs.set("q", params.q);
       if (params.sort) qs.set("sort", params.sort);
       if (params.order) qs.set("order", params.order);
