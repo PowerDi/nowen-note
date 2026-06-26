@@ -44,6 +44,13 @@ export const tiptapExtensions = [
   StarterKit.configure({
     codeBlock: false,
     heading: { levels: [1, 2, 3] },
+    // BLOCK-LINKS-UI-01-RV3: 允许 note: 协议，避免 schema repair 时丢失 note link
+    link: {
+      openOnClick: false,
+      autolink: true,
+      linkOnPaste: true,
+      protocols: ["http", "https", "mailto", "note"],
+    },
   }),
   Image.configure({ inline: false, allowBase64: true }),
   CodeBlockLowlight.configure({ lowlight }),
