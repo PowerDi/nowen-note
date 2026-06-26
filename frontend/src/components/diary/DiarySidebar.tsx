@@ -68,7 +68,7 @@ export default function DiarySidebar({
       {/* 日历入口卡片 */}
       <button
         onClick={onOpenCalendar}
-        className="w-full p-4 rounded-xl bg-gradient-to-br from-violet-500/10 to-pink-500/10 border border-violet-200/50 dark:border-violet-500/20 hover:from-violet-500/15 hover:to-pink-500/15 transition-all group"
+        className="w-full p-4 rounded-xl bg-gradient-to-br from-violet-500/5 to-pink-500/5 border border-violet-200/30 dark:border-violet-500/10 hover:from-violet-500/10 hover:to-pink-500/10 transition-all group"
       >
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
@@ -115,7 +115,7 @@ export default function DiarySidebar({
             {t("diary.moodFilterTitle", { defaultValue: "心情" })}
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-4 gap-2">
           <button
             onClick={() => onMoodFilterChange("")}
             className={cn(
