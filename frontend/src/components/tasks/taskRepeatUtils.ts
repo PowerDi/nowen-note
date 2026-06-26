@@ -1,4 +1,6 @@
 import type { Task } from "@/types";
+// TASK-RECURRENCE-LUNAR-01: 农历转换
+import { getNextLunarYearDate } from "./lunarUtils";
 
 export type RepeatRule = "none" | "daily" | "weekly" | "monthly" | "yearly" | "custom";
 
@@ -15,6 +17,15 @@ export function isRepeatingTask(task: Task): boolean {
 function nextDateFromCustomRule(base: Date, rule: any): Date | null {
   const freq = rule.frequency;
   const interval = Math.max(1, Number(rule.interval) || 1);
+
+  // TASK-RECURRENCE-LUNAR-01: 农历年循环
+  if (rule.calendar === "lunar") {
+    return getNextLunarYearDate(base, {
+      interval,
+      lunarMonth: Number(rule.lunarMonth),
+      lunarDay: Number(rule.lunarDay),
+    });
+  }
 
   if (freq === "day") {
     const next = new Date(base);
