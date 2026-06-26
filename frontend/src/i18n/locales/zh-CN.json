@@ -117,6 +117,7 @@
     "diary": "说说",
     "fileManager": "文件管理",
     "favorites": "收藏",
+    "journals": "日记",
     "trash": "回收站",
     "emptyTrash": "清空回收站",
     "emptyTrashConfirmTitle": "清空回收站",
@@ -2298,6 +2299,9 @@
   "journal": {
     "created": "今日日记已创建",
     "opened": "已打开今日日记",
-    "error": "打开今日日记失败"
+    "error": "打开今日日记失败",
+    "todayJournal": "今日日记",
+    "noJournals": "暂无日记",
+    "createToday": "创建今日日记"
   }
 }

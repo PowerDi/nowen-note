@@ -224,4 +224,88 @@ app.get("/list", (c) => {
   });
 });
 
+/**
+ * 获取日记年月归档结构
+ *
+ * 返回按年月分组的日记树，用于侧边栏展示。
+ * 分组基于 journal_date，不使用 createdAt 或 title。
+ */
+app.get("/archive", (c) => {
+  const db = getDb();
+  const userId = c.req.header("X-User-Id") || "";
+
+  if (!userId) {
+    return c.json({ error: "未授权" }, 401);
+  }
+
+  // 查询所有日记，按 journal_date 倒序
+  const rows = db.prepare(`
+    SELECT id, title, journal_date, createdAt, updatedAt
+    FROM notes
+    WHERE userId = ?
+      AND note_type = 'journal'
+      AND journal_date IS NOT NULL
+      AND journal_date != ''
+      AND isTrashed = 0
+    ORDER BY journal_date DESC
+  `).all(userId) as { id: string; title: string; journal_date: string; createdAt: string; updatedAt: string }[];
+
+  // 按年月分组
+  const yearMap = new Map<string, {
+    count: number;
+    months: Map<string, {
+      count: number;
+      journals: Array<{
+        id: string;
+        title: string;
+        journalDate: string;
+        createdAt: string;
+        updatedAt: string;
+      }>;
+    }>;
+  }>();
+
+  for (const row of rows) {
+    const dateStr = row.journal_date; // YYYY-MM-DD
+    const year = dateStr.slice(0, 4);  // YYYY
+    const month = dateStr.slice(5, 7); // MM
+
+    if (!yearMap.has(year)) {
+      yearMap.set(year, { count: 0, months: new Map() });
+    }
+    const yearEntry = yearMap.get(year)!;
+    yearEntry.count++;
+
+    if (!yearEntry.months.has(month)) {
+      yearEntry.months.set(month, { count: 0, journals: [] });
+    }
+    const monthEntry = yearEntry.months.get(month)!;
+    monthEntry.count++;
+    monthEntry.journals.push({
+      id: row.id,
+      title: row.title,
+      journalDate: row.journal_date,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    });
+  }
+
+  // 转换为前端需要的结构（年份倒序，月份倒序）
+  const years = Array.from(yearMap.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([year, yearData]) => ({
+      year,
+      count: yearData.count,
+      months: Array.from(yearData.months.entries())
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([month, monthData]) => ({
+          month,
+          count: monthData.count,
+          journals: monthData.journals, // 已按 journal_date 倒序
+        })),
+    }));
+
+  return c.json({ years });
+});
+
 export default app;

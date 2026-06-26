@@ -1920,6 +1920,25 @@ export const api = {
         `/journals/list${qs ? `?${qs}` : ""}`
       );
     },
+    /** 获取日记年月归档结构 */
+    getArchive: () =>
+      request<{
+        years: Array<{
+          year: string;
+          count: number;
+          months: Array<{
+            month: string;
+            count: number;
+            journals: Array<{
+              id: string;
+              title: string;
+              journalDate: string;
+              createdAt: string;
+              updatedAt: string;
+            }>;
+          }>;
+        }>;
+      }>("/journals/archive"),
   },
 
   // 说说图片：上传 / 删除悬空 / 拼 URL。

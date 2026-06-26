@@ -119,6 +119,7 @@
     "diary": "Diary",
     "fileManager": "Files",
     "favorites": "Favorites",
+    "journals": "Journals",
     "trash": "Trash",
     "searchPlaceholder": "Search notes...",
     "navigation": "Navigation",
@@ -2129,6 +2130,9 @@
   "journal": {
     "created": "Today's journal created",
     "opened": "Opened today's journal",
-    "error": "Failed to open today's journal"
+    "error": "Failed to open today's journal",
+    "todayJournal": "Today's Journal",
+    "noJournals": "No journals yet",
+    "createToday": "Create today's journal"
   }
 }
