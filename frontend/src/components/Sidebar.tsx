@@ -921,6 +921,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   });
 
+  // 日记归档刷新令牌
+  const [journalRefreshToken, setJournalRefreshToken] = useState(0);
+
   // 切换日记折叠状态时持久化到 localStorage
   const toggleJournalsExpanded = useCallback(() => {
     setJournalsExpanded((prev) => {
@@ -1705,6 +1708,8 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         actions.setMobileSidebar(false);
       }
       actions.refreshNotes();
+      // 刷新日记归档
+      setJournalRefreshToken((prev) => prev + 1);
     } catch (err: any) {
       console.error("Failed to open today journal:", err);
       toast.error(err?.message || t("journal.error", { defaultValue: "打开今日日记失败" }));
@@ -2264,6 +2269,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                 activeNoteId={state.activeNote?.id ?? null}
                 onOpenNote={handleOpenJournalNote}
                 onCreateToday={handleCreateTodayJournal}
+                refreshToken={journalRefreshToken}
               />
             </div>
           </motion.div>

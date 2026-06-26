@@ -58,12 +58,15 @@ interface JournalArchiveProps {
   onOpenNote: (noteId: string) => void;
   /** 创建今日日记回调 */
   onCreateToday: () => void;
+  /** 刷新令牌：变化时重新加载归档数据 */
+  refreshToken?: number;
 }
 
 export default function JournalArchive({
   activeNoteId,
   onOpenNote,
   onCreateToday,
+  refreshToken,
 }: JournalArchiveProps) {
   const { t } = useTranslation();
   const [years, setYears] = useState<YearGroup[]>([]);
@@ -93,7 +96,7 @@ export default function JournalArchive({
 
   useEffect(() => {
     loadArchive();
-  }, [loadArchive]);
+  }, [loadArchive, refreshToken]);
 
   // 切换年份展开/收起
   const toggleYear = (year: string) => {
