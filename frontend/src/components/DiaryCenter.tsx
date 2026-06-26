@@ -147,6 +147,9 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
   const [mood, setMood] = useState("");
   const [showMoods, setShowMoods] = useState(false);
   const [posting, setPosting] = useState(false);
+  // 自定义发布日期（用于补录历史说说）
+  const [customDate, setCustomDate] = useState("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
   // 拖拽视觉反馈（dragOver 时高亮整个卡片）
   const [isDragging, setIsDragging] = useState(false);
   // 待发布媒体队列。用 ref 留一份镜像，因为粘贴 / 拖拽回调里要拿到最新值再
@@ -477,6 +480,7 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
         mood,
         media: readyMedia,
         images: readyImageIds,
+        createdAt: customDate || undefined,
       });
       // 重置：先 revoke 所有 blob URL（已发布图片由后端持久化，前端不再需要 blob）
       for (const item of pendingMediaRef.current) {
@@ -489,6 +493,8 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
       setText("");
       setMood("");
       setShowMoods(false);
+      setCustomDate("");
+      setShowDatePicker(false);
       setPendingMedia([]);
       clearDiaryDraft();
       setDraftRestored(false);
@@ -672,6 +678,52 @@ function ComposeBox({ onPost }: { onPost: () => void }) {
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+
+          {/* 日期选择按钮 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                customDate
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+              )}
+              title={t("diary.customDate", { defaultValue: "自定义发布日期" })}
+            >
+              <Calendar size={15} />
+              <span className="hidden sm:inline">
+                {customDate || t("diary.date", { defaultValue: "日期" })}
+              </span>
+            </button>
+            {showDatePicker && (
+              <div className="absolute top-full left-0 mt-2 p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
+                <div className="text-[11px] text-tx-tertiary mb-2">
+                  {t("diary.customDateHint", { defaultValue: "补录历史说说，留空则使用当前时间" })}
+                </div>
+                <input
+                  type="datetime-local"
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs bg-app-bg border border-app-border rounded-lg text-tx-primary outline-none focus:border-accent-primary/60"
+                />
+                <div className="flex items-center justify-between mt-2">
+                  <button
+                    onClick={() => { setCustomDate(""); setShowDatePicker(false); }}
+                    className="px-2 py-1 text-[11px] text-tx-tertiary hover:text-tx-secondary"
+                  >
+                    {t("diary.clearDate", { defaultValue: "清除" })}
+                  </button>
+                  <button
+                    onClick={() => setShowDatePicker(false)}
+                    className="px-2 py-1 text-[11px] text-accent-primary"
+                  >
+                    {t("diary.confirmDate", { defaultValue: "确定" })}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 图片按钮：达到上限就禁用 */}
@@ -1162,6 +1214,15 @@ function DiaryEditor({
   const [mood, setMood] = useState(item.mood || "");
   const [showMoods, setShowMoods] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 编辑发布日期
+  const [createdAt, setCreatedAt] = useState(() => {
+    // 将 "YYYY-MM-DD HH:MM:SS" 转为 "YYYY-MM-DDTHH:MM" 格式供 input[type=datetime-local] 使用
+    if (item.createdAt) {
+      return item.createdAt.replace(" ", "T").slice(0, 16);
+    }
+    return "";
+  });
+  const [showDatePicker, setShowDatePicker] = useState(false);
   // 复用 PendingMedia 结构：原有媒体初始化为 ready 状态（id 已知，预览用远端 URL）
   const [images, setImages] = useState<PendingMedia[]>(() =>
     diaryMediaFromItem(item).map((media) => ({
@@ -1371,6 +1432,7 @@ function DiaryEditor({
         mood,
         media: readyMedia,
         images: readyImageIds,
+        createdAt: createdAt || undefined,
       });
       onSaved(updated);
     } catch (e: any) {
@@ -1532,6 +1594,46 @@ function DiaryEditor({
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+
+          {/* 日期选择按钮 */}
+          <div className="relative">
+            <button
+              onClick={() => setShowDatePicker(!showDatePicker)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs transition-all",
+                createdAt
+                  ? "bg-accent-primary/10 text-accent-primary"
+                  : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
+              )}
+              title={t("diary.customDate", { defaultValue: "修改发布日期" })}
+            >
+              <Calendar size={15} />
+              <span className="hidden sm:inline">
+                {createdAt ? createdAt.replace("T", " ") : t("diary.date", { defaultValue: "日期" })}
+              </span>
+            </button>
+            {showDatePicker && (
+              <div className="absolute top-full left-0 mt-2 p-3 bg-app-elevated rounded-xl border border-app-border shadow-lg z-50">
+                <div className="text-[11px] text-tx-tertiary mb-2">
+                  {t("diary.editDateHint", { defaultValue: "修改说说的显示时间" })}
+                </div>
+                <input
+                  type="datetime-local"
+                  value={createdAt}
+                  onChange={(e) => setCreatedAt(e.target.value)}
+                  className="w-full px-2 py-1.5 text-xs bg-app-bg border border-app-border rounded-lg text-tx-primary outline-none focus:border-accent-primary/60"
+                />
+                <div className="flex items-center justify-end mt-2">
+                  <button
+                    onClick={() => setShowDatePicker(false)}
+                    className="px-2 py-1 text-[11px] text-accent-primary"
+                  >
+                    {t("diary.confirmDate", { defaultValue: "确定" })}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 图片按钮 */}

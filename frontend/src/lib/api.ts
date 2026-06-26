@@ -1846,7 +1846,7 @@ export const api = {
   //   - <uuid>            → 指定工作区（要求成员身份 + diaries 功能开关未关闭）
   // 在工作区中：发布权限按"是否成员 + 功能开关"，删除权限按 canManageResource
   //   （创建者本人 / admin / owner）。
-  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[] }) => {
+  postDiary: (data: { contentText: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string }) => {
     const ws = getCurrentWorkspace();
     const qs = ws && ws !== "personal" ? `?workspaceId=${encodeURIComponent(ws)}` : "";
     return request<Diary>(`/diary${qs}`, { method: "POST", body: JSON.stringify(data) });
@@ -1878,7 +1878,7 @@ export const api = {
    */
   updateDiary: (
     id: string,
-    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[] },
+    data: { contentText?: string; mood?: string; images?: string[]; media?: DiaryMediaItem[]; createdAt?: string },
   ) =>
     request<Diary>(`/diary/${id}`, {
       method: "PUT",

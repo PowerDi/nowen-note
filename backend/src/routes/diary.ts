@@ -334,6 +334,11 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
     return c.json({ error: "Content or media required" }, 400);
   }
 
+  // 支持自定义发布时间（用于补录历史说说）
+  // 格式：ISO 8601 或 "YYYY-MM-DD HH:MM:SS" 或 "YYYY-MM-DD"
+  // 未传或无效值则使用当前时间
+  const customCreatedAt = normalizeCustomDate(body.createdAt);
+
   const id = crypto.randomUUID();
   const orderedValidMedia = getValidDiaryMedia(
     requestedMedia.map((x) => x.id),
@@ -350,17 +355,32 @@ diary.post("/", requireWorkspaceFeature("diaries"), async (c) => {
 
   // 把整批写入放进事务：要么 diary 行 + 图片 attach 一起成功，要么全部回滚
   const tx = db.transaction(() => {
-    db.prepare(
-      "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media) VALUES (?, ?, ?, ?, ?, ?, ?)",
-    ).run(
-      id,
-      userId,
-      scope.workspaceId,
-      hasText ? contentText.trim() : "",
-      typeof mood === "string" ? mood : "",
-      JSON.stringify(images),
-      JSON.stringify(media),
-    );
+    if (customCreatedAt) {
+      db.prepare(
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        id,
+        userId,
+        scope.workspaceId,
+        hasText ? contentText.trim() : "",
+        typeof mood === "string" ? mood : "",
+        JSON.stringify(images),
+        JSON.stringify(media),
+        customCreatedAt,
+      );
+    } else {
+      db.prepare(
+        "INSERT INTO diaries (id, userId, workspaceId, contentText, mood, images, media) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      ).run(
+        id,
+        userId,
+        scope.workspaceId,
+        hasText ? contentText.trim() : "",
+        typeof mood === "string" ? mood : "",
+        JSON.stringify(images),
+        JSON.stringify(media),
+      );
+    }
 
     if (media.length > 0) {
       // 只 attach 真正"属于本人 + 仍悬空"的媒体，杜绝越权 / 重复绑定。
@@ -409,6 +429,41 @@ function normalizeDateBound(raw: string | undefined, kind: "from" | "to"): strin
   const m = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.\d+)?Z?$/);
   if (m) return `${m[1]} ${m[2]}`;
   return null; // 形态不认识就当没传
+}
+
+/**
+ * 规范化用户自定义的发布时间。
+ * 支持格式：
+ *   - "YYYY-MM-DD" → 当天 00:00:00
+ *   - "YYYY-MM-DDTHH:MM:SS" / "YYYY-MM-DD HH:MM:SS" → 直接使用
+ *   - ISO 8601 带时区 → 转为 UTC
+ * 返回 SQLite 格式的时间字符串，或 null（使用默认当前时间）。
+ */
+function normalizeCustomDate(raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim()) return null;
+  const s = raw.trim();
+
+  // 纯日期：补 00:00:00
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return `${s} 00:00:00`;
+  }
+
+  // "YYYY-MM-DD HH:MM:SS" 格式
+  const spaceMatch = s.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})$/);
+  if (spaceMatch) return `${spaceMatch[1]} ${spaceMatch[2]}`;
+
+  // ISO 8601 格式（带 T）
+  try {
+    const date = new Date(s);
+    if (!isNaN(date.getTime())) {
+      // 转为 UTC "YYYY-MM-DD HH:MM:SS"
+      return date.toISOString().slice(0, 19).replace("T", " ");
+    }
+  } catch {
+    /* ignore */
+  }
+
+  return null;
 }
 
 // 公用：把 scope + 可选 from/to 拼成 WHERE 子句 + 参数数组（cursor 由调用方追加）
@@ -591,6 +646,8 @@ diary.put("/:id", (c) => {
       typeof body.contentText === "string" ? body.contentText.trim() : undefined;
     const newMood: string | undefined =
       typeof body.mood === "string" ? body.mood : undefined;
+    const newCreatedAt: string | null | undefined =
+      body.createdAt !== undefined ? normalizeCustomDate(body.createdAt) : undefined;
     const mediaProvided = Array.isArray(body.media) || Array.isArray(body.images);
     const requested = mediaProvided ? normalizeRequestedMedia(body) : null;
     if (requested?.error) return c.json({ error: requested.error }, requested.status || 400);
@@ -612,6 +669,7 @@ diary.put("/:id", (c) => {
     if (
       newContentText === undefined &&
       newMood === undefined &&
+      newCreatedAt === undefined &&
       !mediaProvided
     ) {
       return c.json(rowToDiary(row));
@@ -677,6 +735,10 @@ diary.put("/:id", (c) => {
       if (newMood !== undefined) {
         updates.push("mood = ?");
         args.push(newMood);
+      }
+      if (newCreatedAt !== undefined) {
+        updates.push("createdAt = ?");
+        args.push(newCreatedAt);
       }
       if (requested) {
         updates.push("images = ?");

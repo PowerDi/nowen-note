@@ -1778,7 +1778,13 @@
     "statsToday": "Today",
     "moodFilterTitle": "Mood Filter",
     "moodDistribution": "Mood Distribution",
-    "itemsCount": "items"
+    "itemsCount": "items",
+    "customDate": "Custom publish date",
+    "customDateHint": "Backdate a moment, leave empty for current time",
+    "editDateHint": "Change the display time of this moment",
+    "date": "Date",
+    "clearDate": "Clear",
+    "confirmDate": "OK"
   },
   "download": {
     "title": "Downloads",

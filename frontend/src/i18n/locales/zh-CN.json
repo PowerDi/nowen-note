@@ -1947,7 +1947,13 @@
     "statsToday": "今日",
     "moodFilterTitle": "心情筛选",
     "moodDistribution": "心情分布",
-    "itemsCount": "条"
+    "itemsCount": "条",
+    "customDate": "自定义发布日期",
+    "customDateHint": "补录历史说说，留空则使用当前时间",
+    "editDateHint": "修改说说的显示时间",
+    "date": "日期",
+    "clearDate": "清除",
+    "confirmDate": "确定"
   },
   "download": {
     "title": "下载客户端",
