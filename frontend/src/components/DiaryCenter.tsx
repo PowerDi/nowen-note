@@ -33,6 +33,7 @@ import {
   type DiaryDraftMedia,
 } from "@/lib/diaryDraft";
 import SayCalendarView from "@/components/diary/SayCalendarView";
+import DiarySidebar from "@/components/diary/DiarySidebar";
 
 // 心情选项
 const MOODS = [
@@ -1051,7 +1052,7 @@ const DiaryCard = React.forwardRef<HTMLDivElement, {
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="group"
       >
-        <div className="bg-app-surface/40 backdrop-blur-sm rounded-2xl border border-app-border hover:border-app-border/80 transition-all duration-200 hover:shadow-sm">
+        <div className="bg-app-surface rounded-xl border border-app-border/60 hover:border-accent-primary/20 transition-all duration-200 hover:shadow-md hover:shadow-accent-primary/5">
           <div className="p-4">
             {/* 内容（纯图说说允许 contentText 为空，此时不渲染 <p>） */}
             {item.contentText && (
@@ -2141,6 +2142,7 @@ export default function DiaryCenter() {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-app-bg">
+      {/* 全屏日历视图（移动端或点击日历卡片时） */}
       {calendarOpen ? (
         <SayCalendarView
           onClose={() => setCalendarOpen(false)}
@@ -2157,221 +2159,193 @@ export default function DiaryCenter() {
           }}
         />
       ) : (
-        <ScrollArea className="flex-1" ref={scrollRef}>
-        <div className="max-w-[640px] mx-auto px-4 py-6 space-y-6">
-          {/* 顶部标题 + 统计 */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center">
-                <MessageCircle size={18} className="text-white" />
+        /* 桌面端双栏布局 */
+        <div className="flex-1 flex overflow-hidden">
+          {/* 左侧：主内容区 */}
+          <ScrollArea className="flex-1" ref={scrollRef}>
+            <div className="max-w-[720px] mx-auto px-4 lg:px-6 py-6 space-y-5">
+              {/* 顶部标题 + 统计 */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-pink-500 flex items-center justify-center shadow-lg shadow-violet-500/20">
+                    <MessageCircle size={20} className="text-white" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl font-bold text-tx-primary leading-tight">{t("diary.title")}</h1>
+                    {stats && (
+                      <p className="text-xs text-tx-tertiary mt-0.5">
+                        {t("diary.statsLine")
+                          .replace("{{total}}", String(stats.total))
+                          .replace("{{today}}", String(stats.todayCount))}
+                      </p>
+                    )}
+                  </div>
+                </div>
+                {/* 移动端日历入口 */}
+                <button
+                  onClick={() => setCalendarOpen(true)}
+                  className="lg:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-app-hover text-tx-secondary hover:bg-app-hover/80 transition-all"
+                >
+                  <Calendar size={14} />
+                  <span>{t("diary.calendarTitle") || "日历"}</span>
+                </button>
               </div>
-              <div>
-                <h1 className="text-lg font-bold text-tx-primary leading-tight">{t("diary.title")}</h1>
-                {stats && (
-                  <p className="text-[11px] text-tx-tertiary mt-0.5">
-                    {t("diary.statsLine")
-                      .replace("{{total}}", String(stats.total))
-                      .replace("{{today}}", String(stats.todayCount))}
-                  </p>
-                )}
+
+              {/* 发布框 - 强化样式 */}
+              <div className="relative">
+                <div className="absolute -inset-1 bg-gradient-to-r from-violet-500/10 to-pink-500/10 rounded-2xl blur-sm" />
+                <div className="relative">
+                  <ComposeBox key={getCurrentWorkspace() || "personal"} onPost={handlePost} />
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* 时间筛选条 */}
-          <FilterBar
-            preset={preset}
-            customRange={customRange}
-            onChange={handleFilterChange}
-          />
-          {/* 日历面板按钮 */}
-          <button
-            onClick={() => setCalendarOpen(true)}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover transition-all"
-            title={t("diary.calendarTitle") || "日历视图"}
-          >
-            <Calendar size={11} />
-            <span>{t("diary.calendarTitle") || "日历"}</span>
-          </button>
+              {/* 筛选区 - 统一 pill tabs */}
+              <div className="space-y-3">
+                {/* 时间筛选 */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <FilterBar
+                    preset={preset}
+                    customRange={customRange}
+                    onChange={handleFilterChange}
+                  />
+                </div>
 
-          {/* 内容筛选栏 */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* 媒体类型 chip */}
-            {(["all", "text", "image", "video"] as const).map((mt) => (
-              <button
-                key={mt}
-                onClick={() => setMediaFilter(mt)}
-                className={cn(
-                  "px-2.5 py-1 rounded-full text-[11px] font-medium transition-all",
-                  mediaFilter === mt
-                    ? "bg-accent-primary text-white shadow-sm shadow-accent-primary/20"
-                    : "bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-                )}
-              >
-                {t(`diary.filterMedia${mt.charAt(0).toUpperCase() + mt.slice(1)}`)}
-              </button>
-            ))}
-
-            {/* 心情筛选 */}
-            <div className="relative" ref={moodFilterRef}>
-              <button
-                onClick={() => setShowMoodFilter(!showMoodFilter)}
-                className={cn(
-                  "flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all",
-                  moodFilter
-                    ? "bg-accent-primary/10 text-accent-primary"
-                    : "bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
-                )}
-              >
-                {moodFilter ? (
-                  <>
-                    <span>{getMoodEmoji(moodFilter)}</span>
-                    <X
-                      size={11}
-                      className="ml-0.5 hover:text-accent-primary"
-                      onClick={(e) => { e.stopPropagation(); setMoodFilter(""); setShowMoodFilter(false); }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <Smile size={12} />
-                    <span>{t("diary.filterMoodAll")}</span>
-                  </>
-                )}
-              </button>
-              {showMoodFilter && (
-                <div className="absolute top-full left-0 mt-1 p-2 bg-app-elevated rounded-xl border border-app-border shadow-lg z-20 w-[200px]">
-                  <div className="grid grid-cols-6 gap-1">
-                    <button
-                      onClick={() => { setMoodFilter(""); setShowMoodFilter(false); }}
-                      className={cn(
-                        "col-span-6 mb-1 px-2 py-1 rounded-lg text-[11px] font-medium transition-all",
-                        !moodFilter
-                          ? "bg-accent-primary/15 text-accent-primary"
-                          : "text-tx-tertiary hover:bg-app-hover hover:text-tx-secondary",
-                      )}
-                    >
-                      {t("diary.filterMoodAll")}
-                    </button>
-                    {MOODS.map(({ value: v, emoji }) => (
+                {/* 内容筛选 + 搜索 */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {/* 媒体类型 */}
+                  <div className="flex items-center gap-1 p-0.5 rounded-lg bg-app-hover/50">
+                    {(["all", "text", "image", "video"] as const).map((mt) => (
                       <button
-                        key={v}
-                        onClick={() => { setMoodFilter(v); setShowMoodFilter(false); }}
+                        key={mt}
+                        onClick={() => setMediaFilter(mt)}
                         className={cn(
-                          "w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-all",
-                          moodFilter === v
-                            ? "bg-accent-primary/15 scale-110 ring-1 ring-accent-primary/30"
-                            : "hover:bg-app-hover hover:scale-110",
+                          "px-2.5 py-1 rounded-md text-[11px] font-medium transition-all",
+                          mediaFilter === mt
+                            ? "bg-accent-primary text-white shadow-sm shadow-accent-primary/20"
+                            : "text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover",
                         )}
                       >
-                        {emoji}
+                        {t(`diary.filterMedia${mt.charAt(0).toUpperCase() + mt.slice(1)}`)}
                       </button>
                     ))}
                   </div>
+
+                  {/* 视频流入口 */}
+                  <button
+                    onClick={openVideoFeed}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
+                    title={t("diary.videoFeed")}
+                  >
+                    <Play size={12} />
+                    <span className="hidden sm:inline">{t("diary.enterVideoFeed")}</span>
+                  </button>
+
+                  {/* 搜索框 */}
+                  <div className="relative flex-1 min-w-[120px] max-w-[200px]">
+                    <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-tx-tertiary" />
+                    <input
+                      type="text"
+                      value={searchText}
+                      onChange={(e) => setSearchText(e.target.value)}
+                      placeholder={t("diary.searchPlaceholder")}
+                      className="w-full pl-7 pr-7 py-1 rounded-md text-[11px] bg-app-hover/50 text-tx-secondary placeholder:text-tx-tertiary outline-none focus:ring-1 focus:ring-accent-primary/30"
+                    />
+                    {searchText && (
+                      <button
+                        onClick={() => setSearchText("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 时间线 */}
+              {loading ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 size={24} className="animate-spin text-accent-primary" />
+                </div>
+              ) : items.length === 0 ? (
+                <div className="flex flex-col items-center py-20 text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-app-hover/60 flex items-center justify-center mb-4">
+                    <MessageCircle size={28} className="text-tx-tertiary" />
+                  </div>
+                  <p className="text-sm text-tx-secondary font-medium">
+                    {isFiltering ? t("diary.emptyFiltered") : t("diary.empty")}
+                  </p>
+                  <p className="text-xs text-tx-tertiary mt-1">
+                    {isFiltering ? t("diary.emptyFilteredHint") : t("diary.emptyHint")}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {groupedItems.map(({ label, items: dayItems }) => (
+                    <div key={label}>
+                      {/* 日期分割 - 时间线样式 */}
+                      <div className="flex items-center gap-3 mb-4 sticky top-0 z-10 bg-app-bg/80 backdrop-blur-sm py-2 -mx-4 lg:-mx-6 px-4 lg:px-6">
+                        <div className="w-2 h-2 rounded-full bg-accent-primary/60" />
+                        <span className="text-xs font-semibold text-tx-secondary">
+                          {label}
+                        </span>
+                        <span className="text-[10px] text-tx-tertiary">
+                          {dayItems.length} {t("diary.itemsCount", { defaultValue: "条" })}
+                        </span>
+                        <div className="flex-1 h-px bg-app-border/40" />
+                      </div>
+
+                      {/* 当天动态 */}
+                      <div className="space-y-3 pl-4 lg:pl-5 border-l-2 border-app-border/30 ml-0.5">
+                        <AnimatePresence mode="popLayout">
+                          {dayItems.map((item) => (
+                            <DiaryCard
+                              key={item.id}
+                              item={item}
+                              onDelete={handleDelete}
+                              onUpdate={handleUpdate}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* 加载更多 */}
+                  {hasMore && (
+                    <div className="flex justify-center pt-2 pb-4">
+                      <button
+                        onClick={() => loadTimeline(false)}
+                        disabled={loadingMore}
+                        className="flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-medium text-tx-secondary bg-app-hover/60 hover:bg-app-hover transition-colors"
+                      >
+                        {loadingMore ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <ChevronDown size={13} />
+                        )}
+                        <span>{loadingMore ? t("diary.loadingMore") : t("diary.loadMore")}</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
+          </ScrollArea>
 
-            {/* 视频流入口 */}
-            <button
-              onClick={openVideoFeed}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all bg-app-hover/60 text-tx-tertiary hover:text-tx-secondary hover:bg-app-hover"
-              title={t("diary.videoFeed")}
-            >
-              <Play size={12} />
-              <span className="hidden sm:inline">{t("diary.enterVideoFeed")}</span>
-            </button>
-
-            {/* 搜索框 */}
-            <div className="relative flex-1 min-w-[120px] max-w-[200px]">
-              <Search size={13} className="absolute left-2 top-1/2 -translate-y-1/2 text-tx-tertiary" />
-              <input
-                type="text"
-                value={searchText}
-                onChange={(e) => setSearchText(e.target.value)}
-                placeholder={t("diary.searchPlaceholder")}
-                className="w-full pl-7 pr-7 py-1 rounded-full text-[11px] bg-app-hover/60 text-tx-secondary placeholder:text-tx-tertiary outline-none focus:ring-1 focus:ring-accent-primary/30"
+          {/* 右侧面板（桌面端） */}
+          <div className="hidden lg:block w-[300px] xl:w-[320px] border-l border-app-border bg-app-surface/30 overflow-auto">
+            <div className="p-4 sticky top-0">
+              <DiarySidebar
+                stats={stats}
+                moodFilter={moodFilter}
+                onMoodFilterChange={setMoodFilter}
+                onOpenCalendar={() => setCalendarOpen(true)}
+                recentItems={items}
               />
-              {searchText && (
-                <button
-                  onClick={() => setSearchText("")}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-tx-tertiary hover:text-tx-secondary"
-                >
-                  <X size={12} />
-                </button>
-              )}
             </div>
           </div>
-
-          {/* 发布框 */}
-          <ComposeBox key={getCurrentWorkspace() || "personal"} onPost={handlePost} />
-
-          {/* 时间线 */}
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 size={24} className="animate-spin text-accent-primary" />
-            </div>
-          ) : items.length === 0 ? (
-            <div className="flex flex-col items-center py-20 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-app-hover/60 flex items-center justify-center mb-4">
-                <MessageCircle size={28} className="text-tx-tertiary" />
-              </div>
-              <p className="text-sm text-tx-secondary font-medium">
-                {isFiltering ? t("diary.emptyFiltered") : t("diary.empty")}
-              </p>
-              <p className="text-xs text-tx-tertiary mt-1">
-                {isFiltering ? t("diary.emptyFilteredHint") : t("diary.emptyHint")}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-5">
-              {groupedItems.map(({ label, items: dayItems }) => (
-                <div key={label}>
-                  {/* 日期分割 */}
-                  <div className="flex items-center gap-3 mb-3">
-                    <span className="text-[11px] font-medium text-tx-tertiary bg-app-hover/60 px-2.5 py-1 rounded-full">
-                      {label}
-                    </span>
-                    <div className="flex-1 h-px bg-app-border/50" />
-                  </div>
-
-                  {/* 当天动态 */}
-                  <div className="space-y-3">
-                    <AnimatePresence mode="popLayout">
-                      {dayItems.map((item) => (
-                        <DiaryCard
-                          key={item.id}
-                          item={item}
-                          onDelete={handleDelete}
-                          onUpdate={handleUpdate}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                </div>
-              ))}
-
-              {/* 加载更多 */}
-              {hasMore && (
-                <div className="flex justify-center pt-2 pb-4">
-                  <button
-                    onClick={() => loadTimeline(false)}
-                    disabled={loadingMore}
-                    className="flex items-center gap-1.5 px-5 py-2 rounded-full text-xs font-medium text-tx-secondary bg-app-hover/60 hover:bg-app-hover transition-colors"
-                  >
-                    {loadingMore ? (
-                      <Loader2 size={13} className="animate-spin" />
-                    ) : (
-                      <ChevronDown size={13} />
-                    )}
-                    <span>{loadingMore ? t("diary.loadingMore") : t("diary.loadMore")}</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
         </div>
-      </ScrollArea>
       )}
 
       {/* 沉浸式视频流 Overlay */}

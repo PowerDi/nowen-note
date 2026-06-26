@@ -1940,7 +1940,14 @@
     "calendarWriteEntry": "写一条说说",
     "calendarToday": "今天",
     "calendarEntryCount": "{{count}} 条记录",
-    "calendarTitle": "日历"
+    "calendarTitle": "日历",
+    "calendarSubtitle": "按日期浏览说说",
+    "statsTitle": "统计",
+    "statsTotal": "总计",
+    "statsToday": "今日",
+    "moodFilterTitle": "心情筛选",
+    "moodDistribution": "心情分布",
+    "itemsCount": "条"
   },
   "download": {
     "title": "下载客户端",

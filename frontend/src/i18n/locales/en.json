@@ -1771,7 +1771,14 @@
     "calendarWriteEntry": "Write an entry",
     "calendarToday": "Today",
     "calendarEntryCount": "{{count}} entries",
-    "calendarTitle": "Calendar"
+    "calendarTitle": "Calendar",
+    "calendarSubtitle": "Browse moments by date",
+    "statsTitle": "Statistics",
+    "statsTotal": "Total",
+    "statsToday": "Today",
+    "moodFilterTitle": "Mood Filter",
+    "moodDistribution": "Mood Distribution",
+    "itemsCount": "items"
   },
   "download": {
     "title": "Downloads",
