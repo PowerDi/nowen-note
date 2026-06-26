@@ -1029,6 +1029,14 @@ app.delete("/:id", (c) => {
     console.warn("[notes.delete] deleteAttachmentFilesByNoteIds failed:", e);
   }
 
+  // BACKLINKS-02-RV1: 永久删除笔记前清理 note_links 引用关系
+  // 作为 source 或 target 的引用记录都需要清除，避免孤儿数据残留
+  try {
+    db.prepare("DELETE FROM note_links WHERE sourceNoteId = ? OR targetNoteId = ?").run(id, id);
+  } catch (e) {
+    console.warn("[notes.delete] cleanup note_links failed:", e);
+  }
+
   // 估算本次释放的字节数——仅用于判断是否值当做全量 VACUUM。
   // 失败时当作 0，后续只会做 checkpoint + incremental_vacuum，不会误触发 VACUUM。
   let freedBytesEstimate = 0;

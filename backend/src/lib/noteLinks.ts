@@ -33,32 +33,44 @@ import { v4 as uuid } from "uuid";
 
 // 匹配 [[note:UUID|标题]] 格式（纯文本形式）
 // 也匹配 href="note:UUID" 格式（HTML/TipTap link mark 形式）
-const NOTE_LINK_RE = /\[\[note:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\|[^\]]*)?\]\]/g;
-const NOTE_HREF_RE = /note:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/g;
+// UUID 支持大小写十六进制
+const NOTE_LINK_RE = /\[\[note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\|[^\]]*)?\]\]/g;
+const NOTE_HREF_RE = /note:([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/g;
 
 /**
- * 从 note.content 字符串里解析出所有被引用的 note id（去重）。
+ * 从 note.content 字符串里解析出所有被引用的 note id 和 linkText。
  *
  * 兼容两种格式：
  *   - 纯文本：`[[note:UUID|标题]]`
  *   - HTML/TipTap：`href="note:UUID"`
  *
- * 返回去重后的 targetNoteId 数组（不含自引用，调用方传入 sourceNoteId 过滤）。
+ * 返回 Map<targetNoteId, linkText>（不含自引用，调用方传入 sourceNoteId 过滤）。
+ * 同一 targetNoteId 多次出现时，保留第一个 linkText。
  */
-export function extractNoteIdsFromContent(content: string): string[] {
-  const ids = new Set<string>();
+export function extractNoteLinksFromContent(content: string): Map<string, string | null> {
+  const links = new Map<string, string | null>();
 
-  // 匹配 [[note:UUID|...]] 格式
+  // 匹配 [[note:UUID|标题]] 格式
   for (const match of content.matchAll(NOTE_LINK_RE)) {
-    ids.add(match[1].toLowerCase());
+    const noteId = match[1].toLowerCase();
+    // 提取 | 后面的标题部分（如果存在）
+    const fullMatch = match[0];
+    const pipeIndex = fullMatch.indexOf("|");
+    const linkText = pipeIndex >= 0 ? fullMatch.slice(pipeIndex + 1, -2) : null;
+    if (!links.has(noteId)) {
+      links.set(noteId, linkText || null);
+    }
   }
 
   // 匹配 href="note:UUID" 格式（HTML/TipTap link mark）
   for (const match of content.matchAll(NOTE_HREF_RE)) {
-    ids.add(match[1].toLowerCase());
+    const noteId = match[1].toLowerCase();
+    if (!links.has(noteId)) {
+      links.set(noteId, null);
+    }
   }
 
-  return [...ids];
+  return links;
 }
 
 /**
@@ -66,10 +78,10 @@ export function extractNoteIdsFromContent(content: string): string[] {
  *
  * 逻辑：
  *   1. DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?
- *   2. 从 content 解析出 targetNoteId 列表
+ *   2. 从 content 解析出 targetNoteId 和 linkText
  *   3. 去重、排除自引用
- *   4. 过滤掉不存在或无权限的 target note（可选，第一版简单实现可跳过）
- *   5. INSERT 新的 note_links 行
+ *   4. 过滤掉不存在的 target note
+ *   5. INSERT 新的 note_links 行（含 linkText）
  *
  * 失败仅打日志，不阻断保存（与 attachmentReferences 一致）。
  */
@@ -85,39 +97,37 @@ export function syncNoteLinks(
       "DELETE FROM note_links WHERE userId = ? AND sourceNoteId = ?"
     ).run(userId, sourceNoteId);
 
-    // 2. 解析新的引用
-    const targetIds = extractNoteIdsFromContent(content);
+    // 2. 解析新的引用（含 linkText）
+    const links = extractNoteLinksFromContent(content);
 
-    // 3. 去重、排除自引用
-    const uniqueTargets = [...new Set(targetIds)].filter(
-      (id) => id !== sourceNoteId.toLowerCase()
-    );
+    // 3. 排除自引用
+    links.delete(sourceNoteId.toLowerCase());
 
-    if (uniqueTargets.length === 0) return;
+    if (links.size === 0) return;
 
     // 4. 过滤掉不存在的 target note（简单校验）
-    const validTargets: string[] = [];
+    const validEntries: Array<[string, string | null]> = [];
     const checkStmt = db.prepare("SELECT id FROM notes WHERE id = ?");
-    for (const targetId of uniqueTargets) {
+    for (const [targetId, linkText] of links) {
       const exists = checkStmt.get(targetId);
-      if (exists) validTargets.push(targetId);
+      if (exists) validEntries.push([targetId, linkText]);
     }
 
-    if (validTargets.length === 0) return;
+    if (validEntries.length === 0) return;
 
-    // 5. 批量插入新的引用关系
+    // 5. 批量插入新的引用关系（含 linkText）
     const insertStmt = db.prepare(`
-      INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+      INSERT OR IGNORE INTO note_links (id, userId, sourceNoteId, targetNoteId, linkText, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
     `);
 
-    const insertMany = db.transaction((targets: string[]) => {
-      for (const targetId of targets) {
-        insertStmt.run(uuid(), userId, sourceNoteId, targetId);
+    const insertMany = db.transaction((entries: Array<[string, string | null]>) => {
+      for (const [targetId, linkText] of entries) {
+        insertStmt.run(uuid(), userId, sourceNoteId, targetId, linkText);
       }
     });
 
-    insertMany(validTargets);
+    insertMany(validEntries);
   } catch (e) {
     console.warn("[syncNoteLinks] failed:", e instanceof Error ? e.message : e);
   }
