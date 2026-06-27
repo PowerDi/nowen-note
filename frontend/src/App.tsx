@@ -583,6 +583,48 @@ function AppLayout() {
      * 不污染当前 viewMode，也与 Cmd-K 键盘入口完全统一。
      */
     onOpenSearch: () => setCommandPaletteOpen(true),
+    // PC-MD-FILE-ASSOCIATION-OPEN-01: 双击 .md 文件打开
+    onOpenFile: async (file) => {
+      const { toast } = await import("@/lib/toast");
+      try {
+        // 从文件名提取标题（去掉扩展名）
+        const title = file.name.replace(/\.(md|markdown|txt)$/i, "") || file.name;
+
+        // 无笔记本时给出提示
+        if (state.notebooks.length === 0) {
+          toast.warning(t('common.needNotebookFirst'));
+          return;
+        }
+
+        // 优先使用当前选中的笔记本，否则取第一个笔记本
+        const notebookId = state.selectedNotebookId || state.notebooks[0]?.id;
+        if (!notebookId) {
+          toast.warning(t('common.needNotebookFirst'));
+          return;
+        }
+
+        const { api } = await import("@/lib/api");
+        const note = await api.createNote({
+          notebookId,
+          title,
+          content: file.content,
+          contentText: file.content,
+          contentFormat: "markdown",
+        });
+
+        actions.setActiveNote(note);
+        actions.setSelectedNotebook(notebookId);
+        actions.setViewMode("notebook");
+        actions.setMobileView("editor");
+        actions.refreshNotes();
+        actions.refreshNotebooks();
+
+        toast.success(t('noteList.openFileSuccess', { defaultValue: '已打开文件：{{name}}', name: file.name }));
+      } catch (err: any) {
+        console.error("Open file failed:", err);
+        toast.error(err?.message || t('noteList.openFileFailed', { defaultValue: '打开文件失败' }));
+      }
+    },
   });
 
   return (
