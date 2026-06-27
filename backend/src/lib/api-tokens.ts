@@ -25,6 +25,7 @@
 
 import crypto from "crypto";
 import type { Database as BetterSqliteDB } from "better-sqlite3";
+import { apiTokensRepository } from "../repositories";
 
 export const API_TOKEN_PREFIX = "nkn_"; // "nowen note key"
 const TOKEN_RAW_BYTES = 32;
@@ -87,10 +88,7 @@ export function initApiTokensTable(db: BetterSqliteDB) {
 export function recordTokenUsage(db: BetterSqliteDB, tokenId: string): void {
   try {
     const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
-    db.prepare(
-      `INSERT INTO api_token_usage (tokenId, day, count) VALUES (?, ?, 1)
-       ON CONFLICT(tokenId, day) DO UPDATE SET count = count + 1`,
-    ).run(tokenId, today);
+    apiTokensRepository.recordUsage(tokenId, today);
   } catch {
     /* 非关键路径，忽略 */
   }
@@ -105,7 +103,7 @@ export function pruneTokenUsage(db: BetterSqliteDB, retentionDays = 90): void {
     const cutoff = new Date(Date.now() - retentionDays * 86400_000)
       .toISOString()
       .slice(0, 10);
-    db.prepare("DELETE FROM api_token_usage WHERE day < ?").run(cutoff);
+    apiTokensRepository.pruneUsageBefore(cutoff);
   } catch {
     /* 忽略 */
   }
@@ -144,21 +142,7 @@ export function resolveApiToken(
 ): ResolvedApiToken | null {
   if (!looksLikeApiToken(raw)) return null;
   const h = hashApiToken(raw);
-  const row = db
-    .prepare(
-      `SELECT id, userId, scopes, expiresAt, revokedAt, lastUsedAt
-       FROM api_tokens WHERE tokenHash = ?`,
-    )
-    .get(h) as
-    | {
-        id: string;
-        userId: string;
-        scopes: string;
-        expiresAt: string | null;
-        revokedAt: string | null;
-        lastUsedAt: string | null;
-      }
-    | undefined;
+  const row = apiTokensRepository.findByTokenHash(h);
   if (!row) return null;
   if (row.revokedAt) return null;
   if (row.expiresAt) {
@@ -171,9 +155,7 @@ export function resolveApiToken(
     !row.lastUsedAt || Date.now() - Date.parse(row.lastUsedAt) > 60_000;
   if (shouldTouch) {
     try {
-      db.prepare(
-        "UPDATE api_tokens SET lastUsedAt = datetime('now'), lastUsedIp = ? WHERE id = ?",
-      ).run(ip || "", row.id);
+      apiTokensRepository.updateLastUsed(row.id, ip || "");
     } catch {
       /* 非关键路径，忽略 */
     }
