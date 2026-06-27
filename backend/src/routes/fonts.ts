@@ -1,8 +1,8 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import fs from "fs";
 import path from "path";
+import { customFontsRepository, systemSettingsRepository } from "../repositories";
 
 const fonts = new Hono();
 
@@ -26,10 +26,7 @@ function extractFontName(filename: string): string {
 
 // 获取字体列表
 fonts.get("/", (c) => {
-  const db = getDb();
-  const rows = db.prepare(
-    "SELECT id, name, fileName, format, createdAt FROM custom_fonts ORDER BY createdAt DESC"
-  ).all();
+  const rows = customFontsRepository.getList();
   return c.json(rows);
 });
 
@@ -48,11 +45,6 @@ fonts.post("/upload", async (c) => {
   const fileList = Array.isArray(files) ? files : [files];
   const ALLOWED_EXT = [".otf", ".otc", ".ttc", ".ttf", ".woff", ".woff2"];
   const MAX_SIZE = 20 * 1024 * 1024; // 单个文件 20MB
-
-  const db = getDb();
-  const insert = db.prepare(
-    "INSERT INTO custom_fonts (id, name, fileName, format, fileSize, createdAt) VALUES (?, ?, ?, ?, ?, datetime('now'))"
-  );
 
   const results: any[] = [];
   const errors: string[] = [];
@@ -75,8 +67,7 @@ fonts.post("/upload", async (c) => {
     }
 
     // 检查文件名是否已存在
-    const existing = db.prepare("SELECT id FROM custom_fonts WHERE fileName = ?").get(file.name) as any;
-    if (existing) {
+    if (customFontsRepository.existsByFileName(file.name)) {
       errors.push(`${file.name}: 字体已存在`);
       continue;
     }
@@ -91,7 +82,7 @@ fonts.post("/upload", async (c) => {
       const name = extractFontName(file.name);
       const format = ext.slice(1); // remove dot
 
-      insert.run(id, name, file.name, format, file.size);
+      customFontsRepository.create({ id, name, fileName: file.name, format, fileSize: file.size });
 
       results.push({ id, name, fileName: file.name, format });
     } catch (err: any) {
@@ -105,8 +96,7 @@ fonts.post("/upload", async (c) => {
 // 获取字体文件（用于 @font-face src）
 fonts.get("/file/:id", (c) => {
   const id = c.req.param("id");
-  const db = getDb();
-  const row = db.prepare("SELECT id, fileName, format FROM custom_fonts WHERE id = ?").get(id) as any;
+  const row = customFontsRepository.getByIdForDownload(id);
 
   if (!row) {
     return c.json({ error: "字体不存在" }, 404);
@@ -138,8 +128,7 @@ fonts.get("/file/:id", (c) => {
 // 删除字体
 fonts.delete("/:id", (c) => {
   const id = c.req.param("id");
-  const db = getDb();
-  const row = db.prepare("SELECT id, format FROM custom_fonts WHERE id = ?").get(id) as any;
+  const row = customFontsRepository.getById(id);
 
   if (!row) {
     return c.json({ error: "字体不存在" }, 404);
@@ -152,12 +141,10 @@ fonts.delete("/:id", (c) => {
   }
 
   // 删除数据库记录
-  db.prepare("DELETE FROM custom_fonts WHERE id = ?").run(id);
+  customFontsRepository.delete(id);
 
   // 如果当前设置使用了该字体，重置为默认
-  db.prepare(
-    "DELETE FROM system_settings WHERE key = 'editor_font_family' AND value = ?"
-  ).run(id);
+  systemSettingsRepository.delete("editor_font_family");
 
   return c.json({ success: true });
 });

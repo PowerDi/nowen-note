@@ -1,7 +1,7 @@
 import { Hono } from "hono";
-import { getDb } from "../db/schema";
 import { isSystemAdmin } from "../middleware/acl";
 import { invalidateFilesQueryDebugCache } from "./files";
+import { systemSettingsRepository } from "../repositories";
 
 const settings = new Hono();
 
@@ -49,18 +49,24 @@ const DEFAULTS: SiteSettings = {
 
 // 获取所有站点设置
 settings.get("/", (c) => {
-  const db = getDb();
   // 同时下发 feature_* 旧键以兼容未升级的旧客户端；新客户端不再消费这两个值。
   // debug_* 系列是运行时调试开关（如 debug_files_query），下发给前端以便管理员
   // 在「设置 → 开发者」面板里看到当前状态；非管理员前端会自行忽略。
-  const rows = db
-    .prepare(
-      "SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'feature_%' OR key LIKE 'debug_%' OR key = 'web_ui_enabled'",
-    )
-    .all() as { key: string; value: string }[];
+  const rows = systemSettingsRepository.getByPrefixes([
+    "site_",
+    "editor_",
+    "feature_",
+    "debug_",
+  ]);
+  // web_ui_enabled 需要单独查询，因为它没有前缀
+  const webUiSetting = systemSettingsRepository.get("web_ui_enabled");
+
   const result: Record<string, string> = { ...DEFAULTS };
   for (const row of rows) {
     result[row.key] = row.value;
+  }
+  if (webUiSetting) {
+    result[webUiSetting.key] = webUiSetting.value;
   }
   return c.json(result);
 });
@@ -101,57 +107,60 @@ settings.put("/", async (c) => {
     );
   }
 
-  const db = getDb();
+  // 收集需要更新的设置
+  const entries: Array<{ key: string; value: string }> = [];
 
-  const upsert = db.prepare(`
-    INSERT INTO system_settings (key, value, updatedAt)
-    VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = datetime('now')
-  `);
+  if (body.site_title !== undefined) {
+    entries.push({ key: "site_title", value: body.site_title.trim().slice(0, 20) });
+  }
+  if (body.site_favicon !== undefined) {
+    entries.push({ key: "site_favicon", value: body.site_favicon });
+  }
+  if (body.editor_font_family !== undefined) {
+    entries.push({ key: "editor_font_family", value: body.editor_font_family });
+  }
+  if (body.debug_files_query !== undefined) {
+    // 归一化成 "true" / "false"——前端可能传 boolean，也可能传字符串
+    const raw = body.debug_files_query as unknown;
+    const normalized =
+      raw === true || raw === "true" || raw === 1 || raw === "1"
+        ? "true"
+        : "false";
+    entries.push({ key: "debug_files_query", value: normalized });
+    // files.ts 内部缓存 30s，写入后主动失效一次，让下一个请求立即读到新值
+    invalidateFilesQueryDebugCache();
+  }
+  if (body.web_ui_enabled !== undefined) {
+    const raw = body.web_ui_enabled as unknown;
+    const normalized =
+      raw === true || raw === "true" || raw === 1 || raw === "1"
+        ? "true"
+        : "false";
+    entries.push({ key: "web_ui_enabled", value: normalized });
+  }
+  // feature_personal_*_enabled 已废弃：即使传了也不再写库，避免跟 per-user
+  // 字段互相遮蔽。要修改请调 PATCH /api/users/:id。
 
-  const tx = db.transaction(() => {
-    if (body.site_title !== undefined) {
-      upsert.run("site_title", body.site_title.trim().slice(0, 20));
-    }
-    if (body.site_favicon !== undefined) {
-      upsert.run("site_favicon", body.site_favicon);
-    }
-    if (body.editor_font_family !== undefined) {
-      upsert.run("editor_font_family", body.editor_font_family);
-    }
-    if (body.debug_files_query !== undefined) {
-      // 归一化成 "true" / "false"——前端可能传 boolean，也可能传字符串
-      const raw = body.debug_files_query as unknown;
-      const normalized =
-        raw === true || raw === "true" || raw === 1 || raw === "1"
-          ? "true"
-          : "false";
-      upsert.run("debug_files_query", normalized);
-      // files.ts 内部缓存 30s，写入后主动失效一次，让下一个请求立即读到新值
-      invalidateFilesQueryDebugCache();
-    }
-    if (body.web_ui_enabled !== undefined) {
-      const raw = body.web_ui_enabled as unknown;
-      const normalized =
-        raw === true || raw === "true" || raw === 1 || raw === "1"
-          ? "true"
-          : "false";
-      upsert.run("web_ui_enabled", normalized);
-    }
-    // feature_personal_*_enabled 已废弃：即使传了也不再写库，避免跟 per-user
-    // 字段互相遮蔽。要修改请调 PATCH /api/users/:id。
-  });
-  tx();
+  // 批量更新
+  if (entries.length > 0) {
+    systemSettingsRepository.setMany(entries);
+  }
 
   // 返回更新后的全部设置
-  const rows = db
-    .prepare(
-      "SELECT key, value FROM system_settings WHERE key LIKE 'site_%' OR key LIKE 'editor_%' OR key LIKE 'feature_%' OR key LIKE 'debug_%' OR key = 'web_ui_enabled'",
-    )
-    .all() as { key: string; value: string }[];
+  const rows = systemSettingsRepository.getByPrefixes([
+    "site_",
+    "editor_",
+    "feature_",
+    "debug_",
+  ]);
+  const webUiSetting = systemSettingsRepository.get("web_ui_enabled");
+
   const result: Record<string, string> = { ...DEFAULTS };
   for (const row of rows) {
     result[row.key] = row.value;
+  }
+  if (webUiSetting) {
+    result[webUiSetting.key] = webUiSetting.value;
   }
   return c.json(result);
 });
