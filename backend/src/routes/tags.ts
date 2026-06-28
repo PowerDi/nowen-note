@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { getDb } from "../db/schema";
 import { v4 as uuid } from "uuid";
 import { getUserWorkspaceRole, hasRole } from "../middleware/acl";
-import { tagsRepository } from "../repositories";
+import { tagsRepository, noteTagsRepository } from "../repositories";
 
 /**
  * Tags 路由 —— 支持工作区隔离
@@ -199,10 +199,7 @@ app.post("/note/:noteId/tag/:tagId", (c) => {
     return c.json({ error: "tag and note must belong to the same workspace" }, 400);
   }
 
-  db.prepare(`INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)`).run(
-    noteId,
-    tagId,
-  );
+  noteTagsRepository.addTagToNote(noteId, tagId);
   return c.json({ success: true });
 });
 
@@ -216,10 +213,7 @@ app.delete("/note/:noteId/tag/:tagId", (c) => {
   if (!owner) return c.json({ error: "tag not found" }, 404);
   if (!canWriteTag(owner, userId)) return c.json({ error: "forbidden" }, 403);
 
-  db.prepare("DELETE FROM note_tags WHERE noteId = ? AND tagId = ?").run(
-    noteId,
-    tagId,
-  );
+  noteTagsRepository.removeTagFromNote(noteId, tagId);
   return c.json({ success: true });
 });
 

@@ -15,7 +15,7 @@ import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { syncNoteLinks, getBacklinks } from "../lib/noteLinks";
-import { noteLinksRepository } from "../repositories";
+import { noteLinksRepository, noteTagsRepository } from "../repositories";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 
@@ -366,11 +366,7 @@ app.get("/:id", (c) => {
   const note = db.prepare(`SELECT ${selectCols} FROM notes WHERE id = ?`).get(userId, id);
   if (!note) return c.json({ error: "Note not found" }, 404);
 
-  const tags = db.prepare(`
-    SELECT t.* FROM tags t
-    JOIN note_tags nt ON t.id = nt.tagId
-    WHERE nt.noteId = ?
-  `).all(id);
+  const tags = noteTagsRepository.listTagsByNoteId(id);
 
   return c.json({ ...note as any, tags, permission });
 });
@@ -853,11 +849,7 @@ app.put("/:id", async (c) => {
     }
   }
 
-  const tags = db.prepare(`
-    SELECT t.* FROM tags t
-    JOIN note_tags nt ON t.id = nt.tagId
-    WHERE nt.noteId = ?
-  `).all(id);
+  const tags = noteTagsRepository.listTagsByNoteId(id);
 
   // Phase 2: 实时广播（失败不阻塞返回）
   // Y1: 仅切换 favorites 时不广播——per-user 操作对其他协作者无意义，广播会引发

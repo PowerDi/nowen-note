@@ -12,6 +12,7 @@ export { apiTokensRepository } from "./apiTokensRepository";
 export { calendarExportTargetsRepository } from "./calendarExportTargetsRepository";
 export { noteLinksRepository } from "./noteLinksRepository";
 export { tagsRepository } from "./tagsRepository";
+export { noteTagsRepository } from "./noteTagsRepository";
 
 // 类型导出
 export type {
