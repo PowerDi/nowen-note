@@ -199,28 +199,44 @@ function clear() {
 
 /** 注册 IPC，供 renderer 通过 preload 调用 */
 function registerCredentialsIpc() {
+  // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
+  const { assertMainWindowSender } = require("./security");
+
   ipcMain.removeHandler("credentials:load");
-  ipcMain.handle("credentials:load", () => {
+  ipcMain.handle("credentials:load", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     const data = load();
-    // 不在 IPC 层返回真实密码，只返回是否有 + autoLogin 标志 + 预填用信息
     if (!data) return null;
     return {
       serverUrl: data.serverUrl,
       username: data.username,
-      password: data.password, // safeStorage 加密过，本地 user-only 可读；仍返回给 renderer 用以自动登录
+      password: data.password,
       hasPassword: data.hasPassword,
       autoLogin: data.autoLogin,
     };
   });
 
   ipcMain.removeHandler("credentials:save");
-  ipcMain.handle("credentials:save", (_e, payload) => save(payload));
+  ipcMain.handle("credentials:save", (event, payload) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return save(payload);
+  });
 
   ipcMain.removeHandler("credentials:clear");
-  ipcMain.handle("credentials:clear", () => clear());
+  ipcMain.handle("credentials:clear", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return clear();
+  });
 
   ipcMain.removeHandler("credentials:is-encryption-available");
-  ipcMain.handle("credentials:is-encryption-available", () => encAvailable());
+  ipcMain.handle("credentials:is-encryption-available", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return encAvailable();
+  });
 }
 
 module.exports = {

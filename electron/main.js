@@ -20,17 +20,12 @@ const {
   clear: clearCredentials,
 } = require("./credentials");
 const folderSync = require("./folder-sync");
-
-// SEC-ELECTRON-01-B1: 验证外部 URL 协议是否允许通过 shell.openExternal 打开
-// 只允许 http/https/mailto，禁止 file/javascript/data/vbscript 等危险协议
-function isAllowedExternalUrl(rawUrl) {
-  try {
-    const parsed = new URL(rawUrl);
-    return ["http:", "https:", "mailto:"].includes(parsed.protocol);
-  } catch {
-    return false;
-  }
-}
+const {
+  isAllowedExternalUrl,
+  isTrustedMainWindowSender,
+  isTrustedSetupWindowSender,
+  assertMainWindowSender,
+} = require("./security");
 
 // 日志 & 崩溃上报需尽早初始化（crashReporter.start 建议在 ready 之前）
 initLogger({
@@ -585,7 +580,14 @@ function createSplash(message) {
     alwaysOnTop: true,
     skipTaskbar: true,
     backgroundColor: "#0D1117",
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    // SEC-ELECTRON-01-B: 显式安全参数
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
   });
   const html = `
     <html><head><style>
@@ -624,7 +626,14 @@ function openAboutWindow() {
     modal: true,
     title: "关于 Nowen Note",
     backgroundColor: "#0D1117",
-    webPreferences: { nodeIntegration: false, contextIsolation: true },
+    // SEC-ELECTRON-01-B: 显式安全参数
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
   });
   const html = `
     <html><head><style>
@@ -691,9 +700,10 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      // sandbox 不能开：preload 使用 require("electron")，sandbox 下 require 不可用
       preload: path.join(__dirname, "preload.js"),
-      // 通过 additionalArguments 把 lite-only 标识带给 preload.js
-      // （preload 里读 process.env.NOWEN_LITE_ONLY；sandbox 关闭时可用 env）
       additionalArguments: isLiteOnlyBuild() ? ["--nowen-lite-only"] : [],
     },
   });
@@ -935,28 +945,37 @@ async function changeRemoteServer() {
 // ---------- IPC：app 信息 ----------
 function registerAppIpc() {
   ipcMain.removeHandler("app:info");
-  ipcMain.handle("app:info", () => ({
-    version: app.getVersion(),
-    name: app.getName(),
-    platform: process.platform,
-    arch: process.arch,
-    userData: getUserDataPath(),
-    logDir: getLogDir(),
-    backendPort,
-    mode: currentMode,
-    remoteUrl: currentRemoteUrl,
-    hideMenuBar: currentHideMenuBar,
-  }));
+  ipcMain.handle("app:info", (event) => {
+    // SEC-ELECTRON-01-B: 来源校验
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return {
+      version: app.getVersion(),
+      name: app.getName(),
+      platform: process.platform,
+      arch: process.arch,
+      userData: getUserDataPath(),
+      logDir: getLogDir(),
+      backendPort,
+      mode: currentMode,
+      remoteUrl: currentRemoteUrl,
+      hideMenuBar: currentHideMenuBar,
+    };
+  });
 
   ipcMain.removeHandler("app:open-log-dir");
-  ipcMain.handle("app:open-log-dir", async () => {
+  ipcMain.handle("app:open-log-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     const dir = getLogDir();
     await shell.openPath(dir);
     return { ok: true, path: dir };
   });
 
   ipcMain.removeHandler("app:open-data-dir");
-  ipcMain.handle("app:open-data-dir", async () => {
+  ipcMain.handle("app:open-data-dir", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     const dir = getUserDataPath();
     await shell.openPath(dir);
     return { ok: true, path: dir };
@@ -992,20 +1011,29 @@ ipcMain.handle("task:notify-permission", () => {
   // Phase A: 桌面零登录 —— renderer 启动时拉取本地账号 token，跳过登录页。
   // 仅 full 模式返回非 null；lite 模式或 ensureLocalAccount 失败时返回 null。
   ipcMain.removeHandler("desktop:get-local-auth");
-  ipcMain.handle("desktop:get-local-auth", () => {
+  ipcMain.handle("desktop:get-local-auth", (event) => {
+    // SEC-ELECTRON-01-B: 高权限 IPC 来源校验
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     return localAuthCache;
   });
 
   // Phase A: 切换到云账号时 renderer 调这个清掉本地缓存，避免下次启动又被自动登录。
   // 注意只清主进程内存里的缓存；userData 下的 secret 文件保留（用户随时可以切回本地账号）。
   ipcMain.removeHandler("desktop:clear-local-auth");
-  ipcMain.handle("desktop:clear-local-auth", () => {
+  ipcMain.handle("desktop:clear-local-auth", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     localAuthCache = null;
     return { ok: true };
   });
 
   ipcMain.removeHandler("desktop:reset-local-auth");
-  ipcMain.handle("desktop:reset-local-auth", () => resetLocalAccountAuth());
+  ipcMain.handle("desktop:reset-local-auth", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return resetLocalAccountAuth();
+  });
 
   /**
    * renderer → main：上报格式状态，同步系统菜单栏 checked 标记。
@@ -1029,19 +1057,25 @@ ipcMain.handle("task:notify-permission", () => {
   // ---------- 模式切换：renderer 主动触发 ----------
   // 前端"设置 / 关于"页可以放一个按钮调用这些接口，等价于走系统菜单。
   ipcMain.removeHandler("mode:switch-to-lite");
-  ipcMain.handle("mode:switch-to-lite", async () => {
+  ipcMain.handle("mode:switch-to-lite", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     await switchToLite(mainWindow);
     return { ok: true };
   });
 
   ipcMain.removeHandler("mode:switch-to-full");
-  ipcMain.handle("mode:switch-to-full", async () => {
+  ipcMain.handle("mode:switch-to-full", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     await switchToFull();
     return { ok: true };
   });
 
   ipcMain.removeHandler("mode:change-server");
-  ipcMain.handle("mode:change-server", async () => {
+  ipcMain.handle("mode:change-server", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     await changeRemoteServer();
     return { ok: true };
   });
@@ -1058,7 +1092,10 @@ ipcMain.handle("task:notify-permission", () => {
   //        invoke("export:note-to-pdf", { html, suggestedName })
   //          → { ok, path?, canceled?, error? }
   ipcMain.removeHandler("export:note-to-pdf");
-  ipcMain.handle("export:note-to-pdf", async (_event, payload) => {
+  ipcMain.handle("export:note-to-pdf", async (event, payload) => {
+    // SEC-ELECTRON-01-B: 来源校验
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     const { html, suggestedName } = payload || {};
     if (typeof html !== "string" || !html) {
       return { ok: false, error: "EMPTY_HTML" };
@@ -1284,8 +1321,10 @@ app.whenReady().then(async () => {
   registerAppIpc();
   registerCredentialsIpc();
 
-  // 文件夹同步 IPC
-  ipcMain.handle("folder-sync:select-folder", async () => {
+  // 文件夹同步 IPC（SEC-ELECTRON-01-B: 全部加 sender 校验）
+  ipcMain.handle("folder-sync:select-folder", async (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ["openDirectory"],
     });
@@ -1294,16 +1333,57 @@ app.whenReady().then(async () => {
     }
     return { cancelled: false, path: result.filePaths[0] };
   });
-  ipcMain.handle("folder-sync:get-configs", () => folderSync.readConfigs());
-  ipcMain.handle("folder-sync:save-config", (_e, config) => folderSync.saveConfig(config));
-  ipcMain.handle("folder-sync:remove-config", (_e, folderId) => folderSync.removeConfig(folderId));
-  ipcMain.handle("folder-sync:get-logs", (_e, folderId) => folderSync.getLogs(folderId));
-  ipcMain.handle("folder-sync:run-now", (_e, folderId) => folderSync.runNow(folderId));
-  ipcMain.handle("folder-sync:get-index", (_e, folderId) => folderSync.getIndex(folderId));
-  ipcMain.handle("folder-sync:get-pending-uploads", (_e, folderId) => folderSync.getPendingUploads(folderId));
-  ipcMain.handle("folder-sync:mark-upload-result", (_e, folderId, relativePath, result) => folderSync.markUploadResult(folderId, relativePath, result));
-  ipcMain.handle("folder-sync:append-log", (_e, folderId, type, message, detail) => { folderSync.appendLog(folderId, type, message, detail); return { ok: true }; });
-  ipcMain.handle("folder-sync:get-upload-file", (_e, folderId, relativePath) => folderSync.getUploadFile(folderId, relativePath));
+  ipcMain.handle("folder-sync:get-configs", (event) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.readConfigs();
+  });
+  ipcMain.handle("folder-sync:save-config", (event, config) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.saveConfig(config);
+  });
+  ipcMain.handle("folder-sync:remove-config", (event, folderId) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.removeConfig(folderId);
+  });
+  ipcMain.handle("folder-sync:get-logs", (event, folderId) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.getLogs(folderId);
+  });
+  ipcMain.handle("folder-sync:run-now", (event, folderId) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.runNow(folderId);
+  });
+  ipcMain.handle("folder-sync:get-index", (event, folderId) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.getIndex(folderId);
+  });
+  ipcMain.handle("folder-sync:get-pending-uploads", (event, folderId) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.getPendingUploads(folderId);
+  });
+  ipcMain.handle("folder-sync:mark-upload-result", (event, folderId, relativePath, result) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.markUploadResult(folderId, relativePath, result);
+  });
+  ipcMain.handle("folder-sync:append-log", (event, folderId, type, message, detail) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    folderSync.appendLog(folderId, type, message, detail);
+    return { ok: true };
+  });
+  ipcMain.handle("folder-sync:get-upload-file", (event, folderId, relativePath) => {
+    const reject = assertMainWindowSender(event);
+    if (reject) return reject;
+    return folderSync.getUploadFile(folderId, relativePath);
+  });
 
   // 局域网服务发现的 IPC 已在更早处注册（setup 窗口依赖它）；这里不重复注册
 

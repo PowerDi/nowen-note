@@ -364,13 +364,26 @@ function openSetupWindow(opts = {}) {
       parent: opts.parent || undefined,
       modal: !!opts.parent,
       autoHideMenuBar: true,
+      // SEC-ELECTRON-01-B: 显式安全参数（sandbox 不能开：preload 使用 require("electron")）
       webPreferences: {
         preload,
         nodeIntegration: false,
         contextIsolation: true,
+        webSecurity: true,
+        allowRunningInsecureContent: false,
       },
     });
     setupWin.setMenuBarVisibility(false);
+
+    // SEC-ELECTRON-01-B: setupWindow 也拦截新窗口，只允许安全协议外链
+    const { isAllowedExternalUrl } = require("./security");
+    setupWin.webContents.setWindowOpenHandler(({ url }) => {
+      if (isAllowedExternalUrl(url)) {
+        require("electron").shell.openExternal(url);
+      }
+      return { action: "deny" };
+    });
+
     setupWin.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(HTML));
 
     let resolved = false;
