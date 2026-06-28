@@ -64,27 +64,34 @@ function assertMainWindowSender(event) {
 
 /**
  * 判断主窗口导航是否允许。
- * 允许：同源导航、hash 路由、file:// 本地页面、data: 页面。
- * 拒绝：外部 http/https、mailto、javascript/data/vbscript 等危险协议。
+ *
+ * 安全策略：
+ *   - 只允许同源 http/https 导航和 hash 路由变化
+ *   - 拒绝 data: / javascript: / vbscript: / chrome: / devtools: / mailto: / about: 等
+ *   - file:// 不泛允许，避免任意本地文件进入主窗口
+ *   - origin 为 "null" 的 URL 不因 origin 相同被误放行
  */
 function isAllowedMainWindowNavigation(targetUrl, currentUrl) {
   try {
     const target = new URL(targetUrl);
     const current = new URL(currentUrl);
 
-    // 同源导航允许
-    if (target.origin === current.origin) return true;
+    // http/https 协议：只允许同源导航
+    if (target.protocol === "http:" || target.protocol === "https:") {
+      return target.origin === current.origin;
+    }
 
-    // file:// 协议：只允许本地文件（生产环境）
-    if (target.protocol === "file:" && current.protocol === "file:") return true;
+    // file:// 协议：不泛允许，避免任意本地文件进入主窗口
+    // 生产环境主窗口通过 loadFile 加载本地文件，但不允许跨文件导航
+    if (target.protocol === "file:") {
+      return false;
+    }
 
-    // data: 协议：允许（错误页面等）
-    if (target.protocol === "data:") return true;
+    // hash 路由变化：允许（同源页面内的 hash 变化）
+    // 注意：URL 解析后 hash 变化不会改变 origin，上面的 http/https 同源判断已覆盖
 
-    // about:blank 允许
-    if (target.protocol === "about:") return true;
-
-    // 其他协议拒绝
+    // 以下协议一律拒绝，不允许加载进主窗口
+    // data: / javascript: / vbscript: / chrome: / devtools: / mailto: / about:
     return false;
   } catch {
     // URL 解析失败拒绝
