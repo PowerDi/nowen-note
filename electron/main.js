@@ -1274,6 +1274,33 @@ app.whenReady().then(async () => {
     });
   }
 
+  // SEC-ELECTRON-01-E3.2: CSP Report-Only 注入 — 先观察，不拦截
+  // 注意：webRequest.onHeadersReceived 对 file:// 协议不生效（Chromium 限制），
+  // 生产环境主窗口通过 loadFile 加载（file://），CSP Report-Only 仅对 http/https 响应生效。
+  // 开发环境（Vite dev server）和 lite 模式远程页面会命中此拦截器。
+  defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...details.responseHeaders };
+    // 仅对 HTML 文档注入，跳过 JS/CSS/图片等资源
+    const contentType = (responseHeaders["content-type"] || responseHeaders["Content-Type"] || [""])[0] || "";
+    if (contentType.includes("text/html") || contentType.includes("application/xhtml+xml")) {
+      const cspRo = [
+        "default-src 'self'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' file: blob: data: http: https:",
+        "connect-src 'self' http: https: ws: wss:",
+        "font-src 'self' blob: data:",
+        "frame-src blob: data: http: https:",
+        "object-src 'none'",
+        "worker-src 'self' blob:",
+        "media-src 'self' blob:",
+      ].join("; ");
+      responseHeaders["Content-Security-Policy-Report-Only"] = [cspRo];
+    }
+    callback({ responseHeaders });
+  });
+  console.log("[Electron] CSP Report-Only injected via webRequest.onHeadersReceived");
+
   // Lite-only 包强制使用 lite 模式：哪怕用户手改 settings.json 为 full 也纠正回来
   if (liteOnly && currentMode !== "lite") {
     console.log("[Electron] lite-only build detected, forcing mode=lite");
