@@ -27,6 +27,7 @@ import { Hono } from "hono";
 import { v4 as uuid } from "uuid";
 import { getDb } from "../db/schema";
 import { syncReferences } from "../lib/attachmentRefs";
+import { noteVersionsRepository } from "../repositories";
 
 const app = new Hono();
 
@@ -147,14 +148,7 @@ app.get("/export-light", (c) => {
   // 版本历史：和 noteTags 一样按 noteId 反查；空集合短路。
   const noteVersions = notes.length === 0
     ? []
-    : (db
-        .prepare(
-          `SELECT id, noteId, title, content, contentText, version,
-                  changeType, changeSummary, createdAt
-             FROM note_versions
-            WHERE noteId IN (${notes.map(() => "?").join(",")})`,
-        )
-        .all(...notes.map((n) => n.id)) as ExportNoteVersion[]);
+    : (noteVersionsRepository.listByNoteIds(notes.map((n) => n.id)) as ExportNoteVersion[]);
 
   const payload: ExportPayload = {
     schemaVersion: 2,
@@ -219,14 +213,7 @@ app.post("/import-light", async (c) => {
     `INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)`,
   );
 
-  // ====== NoteVersion：noteId 重映射；userId 强制为当前云端用户 ======
-  // 表外键 userId → users(id) ON DELETE CASCADE，本地的 userId 在云端通常不存在，
-  // 所以这里直接写云端登录用户。changeSummary 里如果有作者名是历史快照，不影响。
-  const insertNoteVersion = db.prepare(
-    `INSERT INTO note_versions
-       (id, noteId, userId, title, content, contentText, version, changeType, changeSummary, createdAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  // NoteVersion 的创建通过 noteVersionsRepository.create() 处理
 
   // 拓扑排序 notebooks：根（parentId 为 null 或不在集合内）先入，子节点后入。
   // 简单做法：循环找出"父已入库或没父"的节点，最多 N 轮。
@@ -334,22 +321,25 @@ app.post("/import-light", async (c) => {
     }
 
     // 5. NoteVersions（v2 新增；v1 payload 该字段为 undefined，按空处理）
+    // noteId 重映射；userId 强制为当前云端用户
+    // 表外键 userId → users(id) ON DELETE CASCADE，本地的 userId 在云端通常不存在，
+    // 所以这里直接写云端登录用户。changeSummary 里如果有作者名是历史快照，不影响。
     for (const v of payload.noteVersions || []) {
       const newNoteId = noteIdMap.get(v.noteId);
       if (!newNoteId) continue; // note 不在迁移集合，跳过
       const newId = uuid();
-      insertNoteVersion.run(
-        newId,
-        newNoteId,
+      noteVersionsRepository.create({
+        id: newId,
+        noteId: newNoteId,
         userId,
-        v.title,
-        v.content,
-        v.contentText,
-        v.version ?? 1,
-        v.changeType || "edit",
-        v.changeSummary,
-        v.createdAt,
-      );
+        title: v.title ?? "",
+        content: v.content ?? "",
+        contentText: v.contentText ?? "",
+        version: v.version ?? 1,
+        changeType: (v.changeType || "edit") as "edit" | "guest_edit" | "restore",
+        changeSummary: v.changeSummary ?? undefined,
+        createdAt: v.createdAt,
+      });
       imported.noteVersions++;
     }
   });

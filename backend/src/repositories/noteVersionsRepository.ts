@@ -138,13 +138,28 @@ export const noteVersionsRepository = {
     version: number;
     changeType: 'edit' | 'guest_edit' | 'restore';
     changeSummary?: string;
+    /** 仅在用户迁移导入时传入，保留原始时间戳；不传则由 DB 默认值决定 */
+    createdAt?: string;
   }): void {
     const db = getDb();
-    if (input.changeSummary !== undefined) {
+    const hasChangeSummary = input.changeSummary !== undefined;
+    const hasCreatedAt = input.createdAt !== undefined;
+
+    if (hasChangeSummary && hasCreatedAt) {
+      db.prepare(
+        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary, input.createdAt);
+    } else if (hasChangeSummary) {
       db.prepare(
         `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, changeSummary)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary);
+    } else if (hasCreatedAt) {
+      db.prepare(
+        `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType, createdAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.createdAt);
     } else {
       db.prepare(
         `INSERT INTO note_versions (id, noteId, userId, title, content, contentText, version, changeType)
@@ -196,6 +211,29 @@ export const noteVersionsRepository = {
         )
     `).run(keepRecent);
     return result.changes;
+  },
+
+  /**
+   * 按 noteIds 批量查询版本记录。
+   *
+   * 用于用户迁移导出（export-light），按 noteId 集合一次性拉出所有版本。
+   * 空集合返回空数组（调用方短路）。
+   *
+   * @param noteIds 笔记 ID 列表
+   * @returns 版本记录列表
+   */
+  listByNoteIds(noteIds: string[]): NoteVersionRecord[] {
+    if (noteIds.length === 0) return [];
+    const db = getDb();
+    const placeholders = noteIds.map(() => "?").join(",");
+    return db
+      .prepare(
+        `SELECT id, noteId, userId, title, content, contentText, version,
+                changeType, changeSummary, createdAt
+         FROM note_versions
+         WHERE noteId IN (${placeholders})`,
+      )
+      .all(...noteIds) as NoteVersionRecord[];
   },
 
   /**
