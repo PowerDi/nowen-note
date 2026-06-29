@@ -10,7 +10,7 @@ import { broadcastNoteUpdated, broadcastToUser } from "../services/realtime";
 import { yDestroyDoc } from "../services/yjs";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { logAudit } from "../services/audit";
-import { noteVersionsRepository, shareCommentsRepository } from "../repositories";
+import { noteVersionsRepository, shareCommentsRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 
 // H3: 使用密码学安全的随机源生成分享 token。
 //     原实现用 Math.random()，理论上可被预测；改用 crypto.randomBytes。
@@ -618,8 +618,8 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
     `).run(version.title, version.content, version.contentText, noteId);
 
     syncAttachmentReferences(db, noteId, version.content);
-    db.prepare("DELETE FROM note_yupdates WHERE noteId = ?").run(noteId);
-    db.prepare("DELETE FROM note_ysnapshots WHERE noteId = ?").run(noteId);
+    noteYupdatesRepository.deleteByNoteId(noteId);
+    noteYsnapshotsRepository.deleteByNoteId(noteId);
 
     return db.prepare(`
       SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,

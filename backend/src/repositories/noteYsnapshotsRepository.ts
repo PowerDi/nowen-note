@@ -54,4 +54,14 @@ export const noteYsnapshotsRepository = {
          updatedAt = datetime('now')`
     ).run(noteId, snapshotBlob, updatesMergedTo);
   },
+
+  /**
+   * 删除笔记的快照。
+   *
+   * @param noteId 笔记 ID
+   */
+  deleteByNoteId(noteId: string): void {
+    const db = getDb();
+    db.prepare("DELETE FROM note_ysnapshots WHERE noteId = ?").run(noteId);
+  },
 };

@@ -18,7 +18,7 @@ import { getDb } from "../db/schema";
 import { isSystemAdmin, requireAdmin } from "../middleware/acl";
 import { invalidateUserAuthCache, verifySudoFromRequest, extractClientIp } from "../lib/auth-security";
 import { disconnectUser } from "../services/realtime";
-import { noteAclRepository, workspaceInvitesRepository } from "../repositories";
+import { noteAclRepository, workspaceInvitesRepository, noteYupdatesRepository } from "../repositories";
 import { logAudit } from "../services/audit";
 
 const users = new Hono();
@@ -628,11 +628,7 @@ function transferAndDeleteUser(
     );
     moved.workspaceInvites = workspaceInvitesRepository.transferOwnership(fromId, toId);
     // note_yupdates.userId 没有 FK 但仍是 ownership 标记
-    moved.noteYUpdates = run(
-      "UPDATE note_yupdates SET userId = ? WHERE userId = ?",
-      toId,
-      fromId,
-    );
+    moved.noteYUpdates = noteYupdatesRepository.transferOwnership(fromId, toId);
 
     // --- 5) 最后删除原用户（此时 ON DELETE CASCADE 链上已无残留数据） ---
     run("DELETE FROM users WHERE id = ?", fromId);

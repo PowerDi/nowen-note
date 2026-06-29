@@ -15,7 +15,7 @@ import { yFlush, yDestroyDoc, yReplaceContentAsUpdate } from "../services/yjs";
 import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./attachments";
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { syncNoteLinks, getBacklinks } from "../lib/noteLinks";
-import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository } from "../repositories";
+import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
 
@@ -1054,8 +1054,8 @@ app.post("/:id/yjs/release-room", (c) => {
   //    顺序：先删 updates 再删 snapshots（两表独立，但用事务更安全）
   try {
     db.transaction(() => {
-      db.prepare("DELETE FROM note_yupdates WHERE noteId = ?").run(id);
-      db.prepare("DELETE FROM note_ysnapshots WHERE noteId = ?").run(id);
+      noteYupdatesRepository.deleteByNoteId(id);
+      noteYsnapshotsRepository.deleteByNoteId(id);
     })();
   } catch (e) {
     console.warn("[notes.releaseYjsRoom] delete yjs rows failed:", e);

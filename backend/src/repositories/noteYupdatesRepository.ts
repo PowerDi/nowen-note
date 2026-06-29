@@ -63,4 +63,27 @@ export const noteYupdatesRepository = {
     const db = getDb();
     db.prepare("DELETE FROM note_yupdates WHERE noteId = ? AND id <= ?").run(noteId, maxId);
   },
+
+  /**
+   * 删除笔记的所有 updates。
+   *
+   * @param noteId 笔记 ID
+   */
+  deleteByNoteId(noteId: string): void {
+    const db = getDb();
+    db.prepare("DELETE FROM note_yupdates WHERE noteId = ?").run(noteId);
+  },
+
+  /**
+   * 转移用户（用户迁移时使用）。
+   *
+   * @param fromUserId 源用户 ID
+   * @param toUserId 目标用户 ID
+   * @returns 更新的行数
+   */
+  transferOwnership(fromUserId: string, toUserId: string): number {
+    const db = getDb();
+    const result = db.prepare("UPDATE note_yupdates SET userId = ? WHERE userId = ?").run(toUserId, fromUserId);
+    return result.changes;
+  },
 };
