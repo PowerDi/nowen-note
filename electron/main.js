@@ -1026,11 +1026,16 @@ function registerAppIpc() {
   
 // Task reminder notification
 ipcMain.removeHandler("task:notify");
-ipcMain.handle("task:notify", async (_event, { title, body }) => {
+ipcMain.handle("task:notify", async (event, { title, body } = {}) => {
+  // SEC-ELECTRON-01-C-RV1: sender 校验 + 参数类型/长度校验
+  const reject = assertMainWindowSender(event);
+  if (reject) return reject;
   try {
     const { Notification } = require("electron");
     if (!Notification.isSupported()) return { success: false, reason: "not-supported" };
-    const notif = new Notification({ title, body });
+    const safeTitle = typeof title === "string" ? title.slice(0, 200) : "";
+    const safeBody = typeof body === "string" ? body.slice(0, 1000) : "";
+    const notif = new Notification({ title: safeTitle, body: safeBody });
     notif.show();
     return { success: true };
   } catch (e) {
@@ -1404,7 +1409,25 @@ app.whenReady().then(async () => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     if (!config || typeof config !== "object") return { ok: false, error: "INVALID_CONFIG" };
-    return folderSync.saveConfig(config);
+    // SEC-ELECTRON-01-C-RV1: 主进程侧字段白名单（双层防御，与 preload 对齐）
+    const safe = {};
+    if (typeof config.folderId === "string") safe.folderId = config.folderId.slice(0, 128);
+    if (typeof config.folderPath === "string") safe.folderPath = config.folderPath.slice(0, 4096);
+    if (typeof config.targetNotebookId === "string" || config.targetNotebookId === null) {
+      safe.targetNotebookId = config.targetNotebookId;
+    }
+    if (typeof config.includeSubfolders === "boolean") safe.includeSubfolders = config.includeSubfolders;
+    if (Array.isArray(config.fileTypes)) {
+      const allowedExts = [".md", ".markdown", ".txt", ".html", ".htm", ".pdf", ".docx"];
+      safe.fileTypes = config.fileTypes.filter(e => typeof e === "string" && allowedExts.includes(e.toLowerCase()));
+    }
+    if (typeof config.intervalMinutes === "number" && config.intervalMinutes >= 5 && config.intervalMinutes <= 1440) {
+      safe.intervalMinutes = config.intervalMinutes;
+    } else if (config.intervalMinutes === null) {
+      safe.intervalMinutes = null;
+    }
+    if (typeof config.enabled === "boolean") safe.enabled = config.enabled;
+    return folderSync.saveConfig(safe);
   });
 
   // SEC-ELECTRON-01-C: folder-sync 参数校验辅助函数
@@ -1459,7 +1482,12 @@ app.whenReady().then(async () => {
     const reject = assertMainWindowSender(event);
     if (reject) return reject;
     if (!validateFolderId(folderId)) return { ok: false, error: "INVALID_FOLDER_ID" };
-    folderSync.appendLog(folderId, type, message, detail);
+    // SEC-ELECTRON-01-C-RV1: 主进程侧 type/message/detail 校验（双层防御）
+    const allowedTypes = ["info", "warn", "error", "sync", "upload"];
+    const safeType = allowedTypes.includes(type) ? type : "info";
+    const safeMsg = typeof message === "string" ? message.slice(0, 1000) : "";
+    const safeDetail = typeof detail === "string" ? detail.slice(0, 2000) : "";
+    folderSync.appendLog(folderId, safeType, safeMsg, safeDetail);
     return { ok: true };
   });
   ipcMain.handle("folder-sync:get-upload-file", (event, folderId, relativePath) => {

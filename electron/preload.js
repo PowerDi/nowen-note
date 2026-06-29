@@ -109,7 +109,19 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
    * 调用端职责：**自己做节流**（建议 100ms）与 **去重**（浅比较）。此 IPC 极轻量但频繁调用仍划不来。
    */
   sendFormatState(state) {
-    ipcRenderer.send("menu:format-state", state ?? null);
+    if (!state || typeof state !== "object") {
+      ipcRenderer.send("menu:format-state", null);
+      return;
+    }
+    const allowed = [
+      "bold", "italic", "underline", "strike", "code",
+      "heading1", "heading2", "heading3", "paragraph",
+    ];
+    const safe = {};
+    for (const key of allowed) {
+      if (typeof state[key] === "boolean") safe[key] = state[key];
+    }
+    ipcRenderer.send("menu:format-state", safe);
   },
 
   /** 运行在 Electron 客户端的标识（前端用来条件渲染桌面专属 UI） */
@@ -165,7 +177,16 @@ contextBridge.exposeInMainWorld("nowenDesktop", {
       return ipcRenderer.invoke("credentials:load");
     },
     save(payload) {
-      return ipcRenderer.invoke("credentials:save", payload);
+      if (!payload || typeof payload !== "object") {
+        return Promise.resolve({ ok: false, error: "INVALID_PAYLOAD" });
+      }
+      const safe = {};
+      if (typeof payload.remember === "boolean") safe.remember = payload.remember;
+      if (typeof payload.autoLogin === "boolean") safe.autoLogin = payload.autoLogin;
+      if (typeof payload.serverUrl === "string") safe.serverUrl = payload.serverUrl.slice(0, 2048);
+      if (typeof payload.username === "string") safe.username = payload.username.slice(0, 256);
+      if (typeof payload.password === "string") safe.password = payload.password.slice(0, 1024);
+      return ipcRenderer.invoke("credentials:save", safe);
     },
     clear() {
       return ipcRenderer.invoke("credentials:clear");
