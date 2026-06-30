@@ -37,18 +37,18 @@ export const tagsRepository = {
     includeEmpty: boolean = false,
   ): TagWithCount[] {
     const db = getDb();
-    const havingClause = includeEmpty ? "" : "HAVING COUNT(nt.noteId) > 0";
+    const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
 
     if (workspaceId) {
       // 工作区视角
       return db
         .prepare(
           `
-          SELECT t.*, COUNT(nt.noteId) AS noteCount
+          SELECT t.*, COUNT(nt."noteId") AS noteCount
           FROM tags t
-          LEFT JOIN note_tags nt ON nt.tagId = t.id
-          LEFT JOIN notes n ON n.id = nt.noteId AND n.workspaceId = ? AND n.isTrashed = 0
-          WHERE t.workspaceId = ?
+          LEFT JOIN note_tags nt ON nt."tagId" = t.id
+          LEFT JOIN notes n ON n.id = nt."noteId" AND n."workspaceId" = ? AND n."isTrashed" = 0
+          WHERE t."workspaceId" = ?
           GROUP BY t.id
           ${havingClause}
           ORDER BY t.name ASC
@@ -60,14 +60,14 @@ export const tagsRepository = {
       return db
         .prepare(
           `
-          SELECT t.*, COUNT(nt.noteId) AS noteCount
+          SELECT t.*, COUNT(nt."noteId") AS noteCount
           FROM tags t
-          LEFT JOIN note_tags nt ON nt.tagId = t.id
-          LEFT JOIN notes n ON n.id = nt.noteId
-                            AND (n.workspaceId IS NULL)
-                            AND n.userId = ?
-                            AND n.isTrashed = 0
-          WHERE t.userId = ? AND t.workspaceId IS NULL
+          LEFT JOIN note_tags nt ON nt."tagId" = t.id
+          LEFT JOIN notes n ON n.id = nt."noteId"
+                            AND (n."workspaceId" IS NULL)
+                            AND n."userId" = ?
+                            AND n."isTrashed" = 0
+          WHERE t."userId" = ? AND t."workspaceId" IS NULL
           GROUP BY t.id
           ${havingClause}
           ORDER BY t.name ASC
@@ -86,7 +86,7 @@ export const tagsRepository = {
   getOwner(tagId: string): { userId: string; workspaceId: string | null } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT userId, workspaceId FROM tags WHERE id = ?")
+      .prepare('SELECT "userId", "workspaceId" FROM tags WHERE id = ?')
       .get(tagId) as { userId: string; workspaceId: string | null } | undefined;
   },
 
@@ -114,8 +114,8 @@ export const tagsRepository = {
     return db
       .prepare(
         `
-        SELECT t.*, COUNT(nt.noteId) AS noteCount
-        FROM tags t LEFT JOIN note_tags nt ON t.id = nt.tagId
+        SELECT t.*, COUNT(nt."noteId") AS noteCount
+        FROM tags t LEFT JOIN note_tags nt ON t.id = nt."tagId"
         WHERE t.id = ? GROUP BY t.id
         `,
       )
@@ -136,7 +136,7 @@ export const tagsRepository = {
   }): void {
     const db = getDb();
     db.prepare(
-      `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)`,
     ).run(input.id, input.userId, input.workspaceId, input.name, input.color);
   },
 
@@ -176,7 +176,7 @@ export const tagsRepository = {
    */
   deleteTagLinks(tagId: string): void {
     const db = getDb();
-    db.prepare("DELETE FROM note_tags WHERE tagId = ?").run(tagId);
+    db.prepare('DELETE FROM note_tags WHERE "tagId" = ?').run(tagId);
   },
 
   /**
@@ -194,14 +194,14 @@ export const tagsRepository = {
     workspaceId: string | null = null,
     includeEmpty: boolean = false,
   ): Promise<TagWithCount[]> {
-    const havingClause = includeEmpty ? "" : "HAVING COUNT(nt.noteId) > 0";
+    const havingClause = includeEmpty ? "" : 'HAVING COUNT(nt."noteId") > 0';
     if (workspaceId) {
       return getAdapter().queryMany<TagWithCount>(
-        `SELECT t.*, COUNT(nt.noteId) AS noteCount
+        `SELECT t.*, COUNT(nt."noteId") AS noteCount
          FROM tags t
-         LEFT JOIN note_tags nt ON nt.tagId = t.id
-         LEFT JOIN notes n ON n.id = nt.noteId AND n.workspaceId = ? AND n.isTrashed = 0
-         WHERE t.workspaceId = ?
+         LEFT JOIN note_tags nt ON nt."tagId" = t.id
+         LEFT JOIN notes n ON n.id = nt."noteId" AND n."workspaceId" = ? AND n."isTrashed" = 0
+         WHERE t."workspaceId" = ?
          GROUP BY t.id
          ${havingClause}
          ORDER BY t.name ASC`,
@@ -209,14 +209,14 @@ export const tagsRepository = {
       );
     } else {
       return getAdapter().queryMany<TagWithCount>(
-        `SELECT t.*, COUNT(nt.noteId) AS noteCount
+        `SELECT t.*, COUNT(nt."noteId") AS noteCount
          FROM tags t
-         LEFT JOIN note_tags nt ON nt.tagId = t.id
-         LEFT JOIN notes n ON n.id = nt.noteId
-                           AND (n.workspaceId IS NULL)
-                           AND n.userId = ?
-                           AND n.isTrashed = 0
-         WHERE t.userId = ? AND t.workspaceId IS NULL
+         LEFT JOIN note_tags nt ON nt."tagId" = t.id
+         LEFT JOIN notes n ON n.id = nt."noteId"
+                           AND (n."workspaceId" IS NULL)
+                           AND n."userId" = ?
+                           AND n."isTrashed" = 0
+         WHERE t."userId" = ? AND t."workspaceId" IS NULL
          GROUP BY t.id
          ${havingClause}
          ORDER BY t.name ASC`,
@@ -227,7 +227,7 @@ export const tagsRepository = {
 
   async getOwnerAsync(tagId: string): Promise<{ userId: string; workspaceId: string | null } | undefined> {
     return getAdapter().queryOne<{ userId: string; workspaceId: string | null }>(
-      "SELECT userId, workspaceId FROM tags WHERE id = ?",
+      'SELECT "userId", "workspaceId" FROM tags WHERE id = ?',
       [tagId],
     );
   },
@@ -238,8 +238,8 @@ export const tagsRepository = {
 
   async getByIdWithCountAsync(tagId: string): Promise<TagWithCount | undefined> {
     return getAdapter().queryOne<TagWithCount>(
-      `SELECT t.*, COUNT(nt.noteId) AS noteCount
-       FROM tags t LEFT JOIN note_tags nt ON t.id = nt.tagId
+      `SELECT t.*, COUNT(nt."noteId") AS noteCount
+       FROM tags t LEFT JOIN note_tags nt ON t.id = nt."tagId"
        WHERE t.id = ? GROUP BY t.id`,
       [tagId],
     );
@@ -253,7 +253,7 @@ export const tagsRepository = {
     color: string;
   }): Promise<void> {
     await getAdapter().execute(
-      `INSERT INTO tags (id, userId, workspaceId, name, color) VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO tags (id, "userId", "workspaceId", name, color) VALUES (?, ?, ?, ?, ?)`,
       [input.id, input.userId, input.workspaceId, input.name, input.color],
     );
   },
@@ -278,7 +278,7 @@ export const tagsRepository = {
   },
 
   async deleteTagLinksAsync(tagId: string): Promise<void> {
-    await getAdapter().execute("DELETE FROM note_tags WHERE tagId = ?", [tagId]);
+    await getAdapter().execute('DELETE FROM note_tags WHERE "tagId" = ?', [tagId]);
   },
 
   async deleteByIdAsync(tagId: string): Promise<void> {
