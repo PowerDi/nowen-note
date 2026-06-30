@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 export const embeddingQueueRepository = {
   /**
@@ -142,5 +147,81 @@ export const embeddingQueueRepository = {
     return db
       .prepare(`SELECT status, COUNT(*) as c FROM embedding_queue${whereTail} GROUP BY status`)
       .all(...params) as Array<{ status: string; c: number }>;
+  },
+
+  async deleteByNoteIdAsync(noteId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM embedding_queue WHERE noteId = ?", [noteId]);
+  },
+
+  async markSkippedAsync(noteId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE embedding_queue SET status = 'done', updatedAt = datetime('now'), lastError = 'skipped: content too short' WHERE noteId = ?",
+      [noteId],
+    );
+  },
+
+  async markDoneAsync(noteId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE embedding_queue SET status = 'done', lastError = NULL, updatedAt = datetime('now') WHERE noteId = ?",
+      [noteId],
+    );
+  },
+
+  async markProcessingAsync(noteId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE embedding_queue SET status = 'processing', updatedAt = datetime('now') WHERE noteId = ?",
+      [noteId],
+    );
+  },
+
+  async updateStatusAsync(noteId: string, status: string, retries: number, lastError: string): Promise<void> {
+    await getAdapter().execute(
+      `UPDATE embedding_queue
+       SET status = ?, retries = ?, lastError = ?, updatedAt = datetime('now')
+       WHERE noteId = ?`,
+      [status, retries, lastError, noteId],
+    );
+  },
+
+  async listPendingAsync(maxRetries: number, limit: number): Promise<Array<{ noteId: string; userId: string; retries: number }>> {
+    return getAdapter().queryMany<{ noteId: string; userId: string; retries: number }>(
+      `SELECT noteId, userId, retries
+       FROM embedding_queue
+       WHERE status = 'pending' AND retries < ?
+       ORDER BY enqueuedAt ASC
+       LIMIT ?`,
+      [maxRetries, limit],
+    );
+  },
+
+  async enqueueByWhereAsync(whereClause: string, params: unknown[]): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO embedding_queue (noteId, userId, workspaceId, status, retries, enqueuedAt, updatedAt)
+       SELECT id, userId, workspaceId, 'pending', 0, datetime('now'), datetime('now')
+       FROM notes WHERE ${whereClause}
+       ON CONFLICT(noteId) DO UPDATE SET
+         workspaceId = excluded.workspaceId,
+         status = 'pending',
+         retries = 0,
+         lastError = NULL,
+         updatedAt = datetime('now')`,
+      params,
+    );
+  },
+
+  async countByWhereAsync(whereClause: string, params: unknown[]): Promise<number> {
+    const row = await getAdapter().queryOne<{ c: number }>(
+      `SELECT COUNT(*) as c FROM embedding_queue WHERE ${whereClause}`,
+      params,
+    );
+    return row?.c ?? 0;
+  },
+
+  async countByStatusAsync(whereClause: string, params: unknown[]): Promise<Array<{ status: string; c: number }>> {
+    const whereTail = whereClause ? ` WHERE ${whereClause}` : "";
+    return getAdapter().queryMany<{ status: string; c: number }>(
+      `SELECT status, COUNT(*) as c FROM embedding_queue${whereTail} GROUP BY status`,
+      params,
+    );
   },
 };

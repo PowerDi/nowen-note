@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** task_calendar_feeds 记录 */
 export interface TaskCalendarFeedRecord {
@@ -197,5 +202,102 @@ export const taskCalendarFeedsRepository = {
     return db
       .prepare("SELECT id, enabled, token FROM task_calendar_feeds WHERE id = ? AND userId = ?")
       .get(feedId, userId) as { id: string; enabled: number; token: string } | undefined;
+  },
+
+  async getByUserAsync(userId: string): Promise<TaskCalendarFeedRecord | undefined> {
+    return getAdapter().queryOne<TaskCalendarFeedRecord>(
+      "SELECT * FROM task_calendar_feeds WHERE userId = ?",
+      [userId],
+    );
+  },
+
+  async getByIdAndUserAsync(feedId: string, userId: string): Promise<{ id: string } | undefined> {
+    return getAdapter().queryOne<{ id: string }>(
+      "SELECT id FROM task_calendar_feeds WHERE id = ? AND userId = ?",
+      [feedId, userId],
+    );
+  },
+
+  async getByTokenAsync(token: string): Promise<TaskCalendarFeedRecord | undefined> {
+    return getAdapter().queryOne<TaskCalendarFeedRecord>(
+      "SELECT * FROM task_calendar_feeds WHERE token = ?",
+      [token],
+    );
+  },
+
+  async getEnabledByTokenAsync(token: string): Promise<TaskCalendarFeedRecord | undefined> {
+    return getAdapter().queryOne<TaskCalendarFeedRecord>(
+      "SELECT * FROM task_calendar_feeds WHERE token = ? AND enabled = 1",
+      [token],
+    );
+  },
+
+  async createAsync(input: {
+    id: string;
+    userId: string;
+    token: string;
+  }): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO task_calendar_feeds (id, userId, token, enabled, includeCompleted, includeDescription, defaultAlarmMinutes)
+       VALUES (?, ?, ?, 1, 0, 1, 30)`,
+      [input.id, input.userId, input.token],
+    );
+  },
+
+  async enableAsync(feedId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE task_calendar_feeds SET enabled = 1, updatedAt = datetime('now') WHERE id = ?",
+      [feedId],
+    );
+  },
+
+  async updateAsync(feedId: string, input: {
+    enabled?: number;
+    includeCompleted?: number;
+    includeDescription?: number;
+    defaultAlarmMinutes?: number | null;
+  }): Promise<void> {
+    const updates: string[] = [];
+    const params: unknown[] = [];
+
+    if (input.enabled !== undefined) { updates.push("enabled = ?"); params.push(input.enabled); }
+    if (input.includeCompleted !== undefined) { updates.push("includeCompleted = ?"); params.push(input.includeCompleted); }
+    if (input.includeDescription !== undefined) { updates.push("includeDescription = ?"); params.push(input.includeDescription); }
+    if (input.defaultAlarmMinutes !== undefined) { updates.push("defaultAlarmMinutes = ?"); params.push(input.defaultAlarmMinutes); }
+
+    if (updates.length === 0) return;
+
+    updates.push("updatedAt = datetime('now')");
+    params.push(feedId);
+
+    await getAdapter().execute(`UPDATE task_calendar_feeds SET ${updates.join(", ")} WHERE id = ?`, params);
+  },
+
+  async getByIdAsync(feedId: string): Promise<TaskCalendarFeedRecord | undefined> {
+    return getAdapter().queryOne<TaskCalendarFeedRecord>(
+      "SELECT * FROM task_calendar_feeds WHERE id = ?",
+      [feedId],
+    );
+  },
+
+  async regenerateTokenAsync(feedId: string, newToken: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE task_calendar_feeds SET token = ?, updatedAt = datetime('now') WHERE id = ?",
+      [newToken, feedId],
+    );
+  },
+
+  async updateLastAccessedAtAsync(feedId: string): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE task_calendar_feeds SET lastAccessedAt = datetime('now') WHERE id = ?",
+      [feedId],
+    );
+  },
+
+  async getEnabledAndTokenByIdAndUserAsync(feedId: string, userId: string): Promise<{ id: string; enabled: number; token: string } | undefined> {
+    return getAdapter().queryOne<{ id: string; enabled: number; token: string }>(
+      "SELECT id, enabled, token FROM task_calendar_feeds WHERE id = ? AND userId = ?",
+      [feedId, userId],
+    );
   },
 };

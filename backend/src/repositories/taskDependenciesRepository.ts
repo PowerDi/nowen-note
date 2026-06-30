@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** task_dependencies 记录 */
 export interface TaskDependencyRecord {
@@ -145,5 +150,83 @@ export const taskDependenciesRepository = {
     const placeholders = taskIds.map(() => "?").join(",");
     db.prepare(`DELETE FROM task_dependencies WHERE predecessorTaskId IN (${placeholders}) OR successorTaskId IN (${placeholders})`)
       .run(...taskIds, ...taskIds);
+  },
+
+  async listSuccessorsAsync(predecessorTaskId: string): Promise<string[]> {
+    const rows = await getAdapter().queryMany<{ successorTaskId: string }>(
+      "SELECT successorTaskId FROM task_dependencies WHERE predecessorTaskId = ?",
+      [predecessorTaskId],
+    );
+    return rows.map((r) => r.successorTaskId);
+  },
+
+  async listByTaskAsync(taskId: string, userId: string, workspaceId: string | null): Promise<TaskDependencyRecord[]> {
+    if (workspaceId) {
+      return getAdapter().queryMany<TaskDependencyRecord>(
+        "SELECT * FROM task_dependencies WHERE (predecessorTaskId = ? OR successorTaskId = ?) AND workspaceId = ?",
+        [taskId, taskId, workspaceId],
+      );
+    } else {
+      return getAdapter().queryMany<TaskDependencyRecord>(
+        "SELECT * FROM task_dependencies WHERE (predecessorTaskId = ? OR successorTaskId = ?) AND userId = ? AND workspaceId IS NULL",
+        [taskId, taskId, userId],
+      );
+    }
+  },
+
+  async listByWorkspaceAsync(userId: string, workspaceId: string | null): Promise<TaskDependencyRecord[]> {
+    if (workspaceId) {
+      return getAdapter().queryMany<TaskDependencyRecord>(
+        "SELECT * FROM task_dependencies WHERE workspaceId = ?",
+        [workspaceId],
+      );
+    } else {
+      return getAdapter().queryMany<TaskDependencyRecord>(
+        "SELECT * FROM task_dependencies WHERE userId = ? AND workspaceId IS NULL",
+        [userId],
+      );
+    }
+  },
+
+  async existsAsync(predecessorTaskId: string, successorTaskId: string, type: string): Promise<boolean> {
+    const row = await getAdapter().queryOne<{ id: string }>(
+      "SELECT id FROM task_dependencies WHERE predecessorTaskId = ? AND successorTaskId = ? AND type = ?",
+      [predecessorTaskId, successorTaskId, type],
+    );
+    return !!row;
+  },
+
+  async createAsync(input: {
+    id: string;
+    userId: string;
+    workspaceId: string | null;
+    predecessorTaskId: string;
+    successorTaskId: string;
+    type: string;
+  }): Promise<void> {
+    await getAdapter().execute(
+      "INSERT INTO task_dependencies (id, userId, workspaceId, predecessorTaskId, successorTaskId, type) VALUES (?, ?, ?, ?, ?, ?)",
+      [input.id, input.userId, input.workspaceId, input.predecessorTaskId, input.successorTaskId, input.type],
+    );
+  },
+
+  async getByIdAsync(dependencyId: string): Promise<TaskDependencyRecord | undefined> {
+    return getAdapter().queryOne<TaskDependencyRecord>(
+      "SELECT * FROM task_dependencies WHERE id = ?",
+      [dependencyId],
+    );
+  },
+
+  async deleteAsync(dependencyId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM task_dependencies WHERE id = ?", [dependencyId]);
+  },
+
+  async deleteByTaskIdsAsync(taskIds: string[]): Promise<void> {
+    if (taskIds.length === 0) return;
+    const placeholders = taskIds.map(() => "?").join(",");
+    await getAdapter().execute(
+      `DELETE FROM task_dependencies WHERE predecessorTaskId IN (${placeholders}) OR successorTaskId IN (${placeholders})`,
+      [...taskIds, ...taskIds],
+    );
   },
 };

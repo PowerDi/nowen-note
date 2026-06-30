@@ -8,6 +8,11 @@
  */
 
 import { getDb } from "../db/schema";
+import { SqliteAdapter } from "../db/adapters";
+
+function getAdapter() {
+  return new SqliteAdapter(getDb());
+}
 
 /** task_attachments 记录 */
 export interface TaskAttachmentRecord {
@@ -125,6 +130,64 @@ export const taskAttachmentsRepository = {
   listAllPaths(): string[] {
     const db = getDb();
     const rows = db.prepare("SELECT path FROM task_attachments").all() as { path: string }[];
+    return rows.map((r) => r.path);
+  },
+
+  async getByIdAsync(attachmentId: string): Promise<{ id: string; mimeType: string; path: string; filename: string } | undefined> {
+    return getAdapter().queryOne<{ id: string; mimeType: string; path: string; filename: string }>(
+      "SELECT id, mimeType, path, filename FROM task_attachments WHERE id = ?",
+      [attachmentId],
+    );
+  },
+
+  async getByIdForPermissionAsync(attachmentId: string): Promise<{ id: string; userId: string } | undefined> {
+    return getAdapter().queryOne<{ id: string; userId: string }>(
+      "SELECT id, userId FROM task_attachments WHERE id = ?",
+      [attachmentId],
+    );
+  },
+
+  async createAsync(input: {
+    id: string;
+    taskId: string | null;
+    userId: string;
+    workspaceId: string | null;
+    filename: string;
+    mimeType: string;
+    size: number;
+    path: string;
+  }): Promise<void> {
+    await getAdapter().execute(
+      `INSERT INTO task_attachments (id, taskId, userId, workspaceId, filename, mimeType, size, path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [input.id, input.taskId, input.userId, input.workspaceId, input.filename, input.mimeType, input.size, input.path],
+    );
+  },
+
+  async updateTaskAssociationAsync(attachmentId: string, taskId: string, workspaceId: string | null): Promise<void> {
+    await getAdapter().execute(
+      "UPDATE task_attachments SET taskId = ?, workspaceId = ? WHERE id = ?",
+      [taskId, workspaceId, attachmentId],
+    );
+  },
+
+  async getByIdForDeleteAsync(attachmentId: string): Promise<{ id: string; userId: string; taskId: string | null; workspaceId: string | null; path: string } | undefined> {
+    return getAdapter().queryOne<any>(
+      "SELECT id, userId, taskId, workspaceId, path FROM task_attachments WHERE id = ?",
+      [attachmentId],
+    );
+  },
+
+  async deleteAsync(attachmentId: string): Promise<void> {
+    await getAdapter().execute("DELETE FROM task_attachments WHERE id = ?", [attachmentId]);
+  },
+
+  async listAllForBackupAsync(): Promise<Array<{ path: string; size: number }>> {
+    return getAdapter().queryMany<{ path: string; size: number }>("SELECT path, size FROM task_attachments");
+  },
+
+  async listAllPathsAsync(): Promise<string[]> {
+    const rows = await getAdapter().queryMany<{ path: string }>("SELECT path FROM task_attachments");
     return rows.map((r) => r.path);
   },
 };
