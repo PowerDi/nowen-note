@@ -30,7 +30,7 @@ export const noteTagsRepository = {
    */
   addTagToNote(noteId: string, tagId: string): void {
     const db = getDb();
-    db.prepare("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)").run(noteId, tagId);
+    db.prepare('INSERT OR IGNORE INTO note_tags ("noteId", "tagId") VALUES (?, ?)').run(noteId, tagId);
   },
 
   /**
@@ -43,7 +43,7 @@ export const noteTagsRepository = {
    */
   removeTagFromNote(noteId: string, tagId: string): void {
     const db = getDb();
-    db.prepare("DELETE FROM note_tags WHERE noteId = ? AND tagId = ?").run(noteId, tagId);
+    db.prepare('DELETE FROM note_tags WHERE "noteId" = ? AND "tagId" = ?').run(noteId, tagId);
   },
 
   /**
@@ -58,8 +58,8 @@ export const noteTagsRepository = {
       .prepare(
         `
         SELECT t.* FROM tags t
-        JOIN note_tags nt ON t.id = nt.tagId
-        WHERE nt.noteId = ?
+        JOIN note_tags nt ON t.id = nt."tagId"
+        WHERE nt."noteId" = ?
         `,
       )
       .all(noteId) as Tag[];
@@ -85,10 +85,10 @@ export const noteTagsRepository = {
       const placeholders = tagIds.map(() => "?").join(",");
       const rows = db
         .prepare(
-          `SELECT noteId FROM note_tags
-           WHERE tagId IN (${placeholders})
-           GROUP BY noteId
-           HAVING COUNT(DISTINCT tagId) >= ?`,
+          `SELECT "noteId" FROM note_tags
+           WHERE "tagId" IN (${placeholders})
+           GROUP BY "noteId"
+           HAVING COUNT(DISTINCT "tagId") >= ?`,
         )
         .all(...tagIds, tagIds.length) as { noteId: string }[];
       return rows.map((r) => r.noteId);
@@ -97,7 +97,7 @@ export const noteTagsRepository = {
       const placeholders = tagIds.map(() => "?").join(",");
       const rows = db
         .prepare(
-          `SELECT DISTINCT noteId FROM note_tags WHERE tagId IN (${placeholders})`,
+          `SELECT DISTINCT "noteId" FROM note_tags WHERE "tagId" IN (${placeholders})`,
         )
         .all(...tagIds) as { noteId: string }[];
       return rows.map((r) => r.noteId);
@@ -105,18 +105,18 @@ export const noteTagsRepository = {
   },
 
   async addTagToNoteAsync(noteId: string, tagId: string): Promise<void> {
-    await getAdapter().execute("INSERT OR IGNORE INTO note_tags (noteId, tagId) VALUES (?, ?)", [noteId, tagId]);
+    await getAdapter().execute('INSERT OR IGNORE INTO note_tags ("noteId", "tagId") VALUES (?, ?)', [noteId, tagId]);
   },
 
   async removeTagFromNoteAsync(noteId: string, tagId: string): Promise<void> {
-    await getAdapter().execute("DELETE FROM note_tags WHERE noteId = ? AND tagId = ?", [noteId, tagId]);
+    await getAdapter().execute('DELETE FROM note_tags WHERE "noteId" = ? AND "tagId" = ?', [noteId, tagId]);
   },
 
   async listTagsByNoteIdAsync(noteId: string): Promise<Tag[]> {
     return getAdapter().queryMany<Tag>(
       `SELECT t.* FROM tags t
-       JOIN note_tags nt ON t.id = nt.tagId
-       WHERE nt.noteId = ?`,
+       JOIN note_tags nt ON t.id = nt."tagId"
+       WHERE nt."noteId" = ?`,
       [noteId],
     );
   },
@@ -127,17 +127,17 @@ export const noteTagsRepository = {
     if (mode === "and" && tagIds.length > 1) {
       const placeholders = tagIds.map(() => "?").join(",");
       const rows = await getAdapter().queryMany<{ noteId: string }>(
-        `SELECT noteId FROM note_tags
-         WHERE tagId IN (${placeholders})
-         GROUP BY noteId
-         HAVING COUNT(DISTINCT tagId) >= ?`,
+        `SELECT "noteId" FROM note_tags
+         WHERE "tagId" IN (${placeholders})
+         GROUP BY "noteId"
+         HAVING COUNT(DISTINCT "tagId") >= ?`,
         [...tagIds, tagIds.length],
       );
       return rows.map((r) => r.noteId);
     } else {
       const placeholders = tagIds.map(() => "?").join(",");
       const rows = await getAdapter().queryMany<{ noteId: string }>(
-        `SELECT DISTINCT noteId FROM note_tags WHERE tagId IN (${placeholders})`,
+        `SELECT DISTINCT "noteId" FROM note_tags WHERE "tagId" IN (${placeholders})`,
         tagIds,
       );
       return rows.map((r) => r.noteId);
