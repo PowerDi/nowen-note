@@ -40,11 +40,11 @@ export const taskTemplatesRepository = {
     const db = getDb();
     if (workspaceId) {
       return db
-        .prepare('SELECT * FROM task_templates WHERE workspaceId = ? ORDER BY createdAt DESC')
+        .prepare('SELECT * FROM task_templates WHERE "workspaceId" = ? ORDER BY "createdAt" DESC')
         .all(workspaceId) as TaskTemplateRecord[];
     } else {
       return db
-        .prepare('SELECT * FROM task_templates WHERE userId = ? AND workspaceId IS NULL ORDER BY createdAt DESC')
+        .prepare('SELECT * FROM task_templates WHERE "userId" = ? AND "workspaceId" IS NULL ORDER BY "createdAt" DESC')
         .all(userId) as TaskTemplateRecord[];
     }
   },
@@ -80,7 +80,7 @@ export const taskTemplatesRepository = {
     const db = getDb();
     const now = new Date().toISOString();
     db.prepare(
-      'INSERT INTO task_templates (id, userId, workspaceId, name, description, icon, color, items, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO task_templates (id, "userId", "workspaceId", name, description, icon, color, items, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       input.id,
       input.userId,
@@ -135,7 +135,7 @@ export const taskTemplatesRepository = {
 
     if (updates.length === 0) return;
 
-    updates.push("updatedAt = datetime('now')");
+    updates.push('"updatedAt" = datetime(\'now\')');
     params.push(templateId);
 
     db.prepare(`UPDATE task_templates SET ${updates.join(', ')} WHERE id = ?`).run(...params);
@@ -154,12 +154,12 @@ export const taskTemplatesRepository = {
   async listByUserAsync(userId: string, workspaceId: string | null): Promise<TaskTemplateRecord[]> {
     if (workspaceId) {
       return getAdapter().queryMany<TaskTemplateRecord>(
-        'SELECT * FROM task_templates WHERE workspaceId = ? ORDER BY createdAt DESC',
+        'SELECT * FROM task_templates WHERE "workspaceId" = ? ORDER BY "createdAt" DESC',
         [workspaceId],
       );
     } else {
       return getAdapter().queryMany<TaskTemplateRecord>(
-        'SELECT * FROM task_templates WHERE userId = ? AND workspaceId IS NULL ORDER BY createdAt DESC',
+        'SELECT * FROM task_templates WHERE "userId" = ? AND "workspaceId" IS NULL ORDER BY "createdAt" DESC',
         [userId],
       );
     }
@@ -172,7 +172,7 @@ export const taskTemplatesRepository = {
   async createAsync(input: { id: string; userId: string; workspaceId: string | null; name: string; description: string | null; icon: string | null; color: string | null; items: unknown[] }): Promise<void> {
     const now = new Date().toISOString();
     await getAdapter().execute(
-      'INSERT INTO task_templates (id, userId, workspaceId, name, description, icon, color, items, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO task_templates (id, "userId", "workspaceId", name, description, icon, color, items, "createdAt", "updatedAt") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [input.id, input.userId, input.workspaceId, input.name.trim(), input.description || null, input.icon || null, input.color || null, JSON.stringify(input.items), now, now],
     );
   },
@@ -188,7 +188,7 @@ export const taskTemplatesRepository = {
     if (input.items !== undefined) { updates.push('items = ?'); params.push(JSON.stringify(input.items)); }
 
     if (updates.length === 0) return;
-    updates.push("updatedAt = datetime('now')");
+    updates.push('"updatedAt" = datetime(\'now\')');
     params.push(templateId);
     await getAdapter().execute(`UPDATE task_templates SET ${updates.join(', ')} WHERE id = ?`, params);
   },
