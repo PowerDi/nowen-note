@@ -24,7 +24,7 @@ export const shareCommentsRepository = {
   getById(commentId: string): { id: string; userId: string | null } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT id, userId FROM share_comments WHERE id = ?")
+      .prepare("SELECT id, \"userId\" FROM share_comments WHERE id = ?")
       .get(commentId) as { id: string; userId: string | null } | undefined;
   },
 
@@ -37,7 +37,7 @@ export const shareCommentsRepository = {
   getResolved(commentId: string): { isResolved: number } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT isResolved FROM share_comments WHERE id = ?")
+      .prepare("SELECT \"isResolved\" FROM share_comments WHERE id = ?")
       .get(commentId) as { isResolved: number } | undefined;
   },
 
@@ -49,7 +49,7 @@ export const shareCommentsRepository = {
    */
   updateResolved(commentId: string, isResolved: number): void {
     const db = getDb();
-    db.prepare("UPDATE share_comments SET isResolved = ?, updatedAt = datetime('now') WHERE id = ?")
+    db.prepare("UPDATE share_comments SET \"isResolved\" = ?, \"updatedAt\" = datetime('now') WHERE id = ?")
       .run(isResolved, commentId);
   },
 
@@ -71,7 +71,7 @@ export const shareCommentsRepository = {
    */
   countByUser(userId: string): number {
     const db = getDb();
-    const row = db.prepare("SELECT COUNT(*) as c FROM share_comments WHERE userId = ?").get(userId) as { c: number };
+    const row = db.prepare("SELECT COUNT(*) as c FROM share_comments WHERE \"userId\" = ?").get(userId) as { c: number };
     return row.c;
   },
 
@@ -84,7 +84,7 @@ export const shareCommentsRepository = {
    */
   transferOwnership(fromUserId: string, toUserId: string): number {
     const db = getDb();
-    const result = db.prepare("UPDATE share_comments SET userId = ? WHERE userId = ?").run(toUserId, fromUserId);
+    const result = db.prepare("UPDATE share_comments SET \"userId\" = ? WHERE \"userId\" = ?").run(toUserId, fromUserId);
     return result.changes;
   },
 
@@ -106,12 +106,12 @@ export const shareCommentsRepository = {
     const db = getDb();
     if (input.userId) {
       db.prepare(
-        `INSERT INTO share_comments (id, noteId, userId, parentId, content, anchorData)
+        `INSERT INTO share_comments (id, "noteId", "userId", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?)`
       ).run(input.id, input.noteId, input.userId, input.parentId || null, input.content, input.anchorData || null);
     } else {
       db.prepare(
-        `INSERT INTO share_comments (id, noteId, userId, guestName, guestIpHash, parentId, content, anchorData)
+        `INSERT INTO share_comments (id, "noteId", "userId", "guestName", "guestIpHash", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(input.id, input.noteId, null, input.guestName || null, input.guestIpHash || null, input.parentId || null, input.content, input.anchorData || null);
     }
@@ -129,11 +129,11 @@ export const shareCommentsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT sc.*, u.username, u.avatarUrl
+        `SELECT sc.*, u.username, u."avatarUrl"
          FROM share_comments sc
-         LEFT JOIN users u ON sc.userId = u.id
-         WHERE sc.noteId = ?
-         ORDER BY sc.createdAt ASC`,
+         LEFT JOIN users u ON sc."userId" = u.id
+         WHERE sc."noteId" = ?
+         ORDER BY sc."createdAt" ASC`,
       )
       .all(noteId) as any[];
   },
@@ -150,9 +150,9 @@ export const shareCommentsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT sc.*, u.username, u.avatarUrl
+        `SELECT sc.*, u.username, u."avatarUrl"
          FROM share_comments sc
-         LEFT JOIN users u ON sc.userId = u.id
+         LEFT JOIN users u ON sc."userId" = u.id
          WHERE sc.id = ?`,
       )
       .get(id) as any | undefined;
@@ -170,15 +170,15 @@ export const shareCommentsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-                sc.isResolved, sc.createdAt, sc.updatedAt,
-                u.username, u.avatarUrl,
-                COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-                CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+        `SELECT sc.id, sc."noteId", sc."userId", sc."guestName", sc."parentId", sc.content, sc."anchorData",
+                sc."isResolved", sc."createdAt", sc."updatedAt",
+                u.username, u."avatarUrl",
+                COALESCE(NULLIF(sc."guestName", ''), u.username, '匿名') AS "displayName",
+                CASE WHEN sc."userId" IS NULL THEN 1 ELSE 0 END AS "isGuest"
          FROM share_comments sc
-         LEFT JOIN users u ON sc.userId = u.id
-         WHERE sc.noteId = ?
-         ORDER BY sc.createdAt ASC`,
+         LEFT JOIN users u ON sc."userId" = u.id
+         WHERE sc."noteId" = ?
+         ORDER BY sc."createdAt" ASC`,
       )
       .all(noteId) as any[];
   },
@@ -195,13 +195,13 @@ export const shareCommentsRepository = {
     const db = getDb();
     return db
       .prepare(
-        `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-                sc.isResolved, sc.createdAt, sc.updatedAt,
-                u.username, u.avatarUrl,
-                COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-                CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+        `SELECT sc.id, sc."noteId", sc."userId", sc."guestName", sc."parentId", sc.content, sc."anchorData",
+                sc."isResolved", sc."createdAt", sc."updatedAt",
+                u.username, u."avatarUrl",
+                COALESCE(NULLIF(sc."guestName", ''), u.username, '匿名') AS "displayName",
+                CASE WHEN sc."userId" IS NULL THEN 1 ELSE 0 END AS "isGuest"
          FROM share_comments sc
-         LEFT JOIN users u ON sc.userId = u.id
+         LEFT JOIN users u ON sc."userId" = u.id
          WHERE sc.id = ?`,
       )
       .get(id) as any | undefined;
@@ -209,21 +209,21 @@ export const shareCommentsRepository = {
 
   async getByIdAsync(commentId: string): Promise<{ id: string; userId: string | null } | undefined> {
     return getAdapter().queryOne<{ id: string; userId: string | null }>(
-      "SELECT id, userId FROM share_comments WHERE id = ?",
+      "SELECT id, \"userId\" FROM share_comments WHERE id = ?",
       [commentId],
     );
   },
 
   async getResolvedAsync(commentId: string): Promise<{ isResolved: number } | undefined> {
     return getAdapter().queryOne<{ isResolved: number }>(
-      "SELECT isResolved FROM share_comments WHERE id = ?",
+      "SELECT \"isResolved\" FROM share_comments WHERE id = ?",
       [commentId],
     );
   },
 
   async updateResolvedAsync(commentId: string, isResolved: number): Promise<void> {
     await getAdapter().execute(
-      "UPDATE share_comments SET isResolved = ?, updatedAt = datetime('now') WHERE id = ?",
+      "UPDATE share_comments SET \"isResolved\" = ?, \"updatedAt\" = datetime('now') WHERE id = ?",
       [isResolved, commentId],
     );
   },
@@ -234,7 +234,7 @@ export const shareCommentsRepository = {
 
   async countByUserAsync(userId: string): Promise<number> {
     const row = await getAdapter().queryOne<{ c: number }>(
-      "SELECT COUNT(*) as c FROM share_comments WHERE userId = ?",
+      "SELECT COUNT(*) as c FROM share_comments WHERE \"userId\" = ?",
       [userId],
     );
     return row?.c ?? 0;
@@ -242,7 +242,7 @@ export const shareCommentsRepository = {
 
   async transferOwnershipAsync(fromUserId: string, toUserId: string): Promise<number> {
     const result = await getAdapter().execute(
-      "UPDATE share_comments SET userId = ? WHERE userId = ?",
+      "UPDATE share_comments SET \"userId\" = ? WHERE \"userId\" = ?",
       [toUserId, fromUserId],
     );
     return result.changes;
@@ -260,13 +260,13 @@ export const shareCommentsRepository = {
   }): Promise<void> {
     if (input.userId) {
       await getAdapter().execute(
-        `INSERT INTO share_comments (id, noteId, userId, parentId, content, anchorData)
+        `INSERT INTO share_comments (id, "noteId", "userId", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, input.userId, input.parentId || null, input.content, input.anchorData || null],
       );
     } else {
       await getAdapter().execute(
-        `INSERT INTO share_comments (id, noteId, userId, guestName, guestIpHash, parentId, content, anchorData)
+        `INSERT INTO share_comments (id, "noteId", "userId", "guestName", "guestIpHash", "parentId", content, "anchorData")
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
         [input.id, input.noteId, null, input.guestName || null, input.guestIpHash || null, input.parentId || null, input.content, input.anchorData || null],
       );
@@ -275,20 +275,20 @@ export const shareCommentsRepository = {
 
   async listByNoteIdWithUserAsync(noteId: string): Promise<any[]> {
     return getAdapter().queryMany<any>(
-      `SELECT sc.*, u.username, u.avatarUrl
+      `SELECT sc.*, u.username, u."avatarUrl"
        FROM share_comments sc
-       LEFT JOIN users u ON sc.userId = u.id
-       WHERE sc.noteId = ?
-       ORDER BY sc.createdAt ASC`,
+       LEFT JOIN users u ON sc."userId" = u.id
+       WHERE sc."noteId" = ?
+       ORDER BY sc."createdAt" ASC`,
       [noteId],
     );
   },
 
   async getByIdWithUserAsync(id: string): Promise<any | undefined> {
     return getAdapter().queryOne<any>(
-      `SELECT sc.*, u.username, u.avatarUrl
+      `SELECT sc.*, u.username, u."avatarUrl"
        FROM share_comments sc
-       LEFT JOIN users u ON sc.userId = u.id
+       LEFT JOIN users u ON sc."userId" = u.id
        WHERE sc.id = ?`,
       [id],
     );
@@ -296,28 +296,28 @@ export const shareCommentsRepository = {
 
   async listByNoteIdWithUserForPublicAsync(noteId: string): Promise<any[]> {
     return getAdapter().queryMany<any>(
-      `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-              sc.isResolved, sc.createdAt, sc.updatedAt,
-              u.username, u.avatarUrl,
-              COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-              CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+      `SELECT sc.id, sc."noteId", sc."userId", sc."guestName", sc."parentId", sc.content, sc."anchorData",
+              sc."isResolved", sc."createdAt", sc."updatedAt",
+              u.username, u."avatarUrl",
+              COALESCE(NULLIF(sc."guestName", ''), u.username, '匿名') AS "displayName",
+              CASE WHEN sc."userId" IS NULL THEN 1 ELSE 0 END AS "isGuest"
        FROM share_comments sc
-       LEFT JOIN users u ON sc.userId = u.id
-       WHERE sc.noteId = ?
-       ORDER BY sc.createdAt ASC`,
+       LEFT JOIN users u ON sc."userId" = u.id
+       WHERE sc."noteId" = ?
+       ORDER BY sc."createdAt" ASC`,
       [noteId],
     );
   },
 
   async getByIdWithUserForPublicAsync(id: string): Promise<any | undefined> {
     return getAdapter().queryOne<any>(
-      `SELECT sc.id, sc.noteId, sc.userId, sc.guestName, sc.parentId, sc.content, sc.anchorData,
-              sc.isResolved, sc.createdAt, sc.updatedAt,
-              u.username, u.avatarUrl,
-              COALESCE(NULLIF(sc.guestName, ''), u.username, '匿名') AS displayName,
-              CASE WHEN sc.userId IS NULL THEN 1 ELSE 0 END AS isGuest
+      `SELECT sc.id, sc."noteId", sc."userId", sc."guestName", sc."parentId", sc.content, sc."anchorData",
+              sc."isResolved", sc."createdAt", sc."updatedAt",
+              u.username, u."avatarUrl",
+              COALESCE(NULLIF(sc."guestName", ''), u.username, '匿名') AS "displayName",
+              CASE WHEN sc."userId" IS NULL THEN 1 ELSE 0 END AS "isGuest"
        FROM share_comments sc
-       LEFT JOIN users u ON sc.userId = u.id
+       LEFT JOIN users u ON sc."userId" = u.id
        WHERE sc.id = ?`,
       [id],
     );
