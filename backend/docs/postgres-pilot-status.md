@@ -25,45 +25,33 @@
 
 ---
 
-## PG-PILOT-01-B：真实 PostgreSQL 验证 ⏳ 阻塞
+## PG-PILOT-01-B：真实 PostgreSQL 验证 ✅ 通过
 
-### 阻塞原因
+### 验证环境
 
-当前环境无 Docker，无法启动 PostgreSQL 容器。
+- PostgreSQL 18.4（本机 Windows）
+- 数据库：`nowen_note_test`
+- 用户：`nowen`
+- 连接：`postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test`
 
-### 当前状态
+### 验证结果
 
-- `TEST_PG_DATABASE_URL` 未设置
-- `system-settings-repository-pg.test.ts` — 11 个测试全部 SKIP
-- `postgres-adapter.test.ts` — 11 个测试全部 SKIP
-- 无法验证 PG adapter 在真实数据库上的行为
+| 测试 | 结果 |
+|------|------|
+| postgres-adapter.test.ts | 11 pass, 0 fail |
+| system-settings-repository-pg.test.ts | 11 pass, 0 fail |
+| system-settings-repository-async.test.ts | 7 pass, 0 fail |
+| SQLite 完整回归 | 94 pass, 0 fail |
 
-### 解除阻塞方式
+**总计：123 pass, 0 fail**
 
-以下任选其一：
+### 发现并修复的问题
 
-| 方案 | 操作 | 适用场景 |
-|------|------|----------|
-| A | 安装 Docker Desktop → `docker compose -f docker-compose.postgres.yml up -d` | 推荐，与开发环境一致 |
-| B | 本机安装 PostgreSQL → 创建 `nowen_note_test` 数据库 | 不想装 Docker |
-| C | 远程测试库（NAS / 云服务器 / Supabase / Neon）| 最快 |
+PostgreSQL 对未加引号的 camelCase 列名会折叠为小写。schema 定义 `"updatedAt"`（带双引号），但 SQL 中写 `updatedAt`（不带引号），导致列不存在错误。
 
-### 验证步骤
+修复：在 async 方法的 SQL 中对 `updatedAt` 加双引号。同步 SQLite 方法不受影响。
 
-解除阻塞后执行：
-
-```bash
-# 1. 设置连接字符串
-$env:TEST_PG_DATABASE_URL="postgres://nowen:nowen_dev_password@localhost:5432/nowen_note_test"
-
-# 2. 运行 adapter 测试
-npx tsx --test tests/postgres-adapter.test.ts
-
-# 3. 运行 repository 测试
-npx tsx --test tests/system-settings-repository-pg.test.ts
-
-# 4. 确认全部通过后标记 PG-PILOT-01 完成
-```
+- Commit：`15622a2` — fix: quote postgres camelCase column in system settings pilot
 
 ---
 
@@ -86,3 +74,20 @@ npx tsx --test tests/system-settings-repository-pg.test.ts
 | task-description | ✅ 6 pass |
 
 **结论：SQLite 默认运行完全不受影响。**
+
+---
+
+## PG-PILOT-01 ✅ 完全收口
+
+### 关键 Commits
+
+| Commit | 描述 |
+|--------|------|
+| `8f16968` | test: add postgres pilot coverage for system settings repository |
+| `5c43575` | docs: document postgres pilot validation blocker |
+| `a1d801d` | test: align postgres pilot test environment |
+| `15622a2` | fix: quote postgres camelCase column in system settings pilot |
+
+### 经验教训
+
+**PostgreSQL camelCase 列名必须加双引号。** schema 中 `"updatedAt"` 带引号保留驼峰，SQL 中也必须写 `"updatedAt"`，否则 PG 折叠为 `updatedat` 导致列不存在。后续迁移其他 Repository 时需注意此规则。
