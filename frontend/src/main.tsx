@@ -6,6 +6,25 @@ import App from "./App";
 import "./index.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 
+function removeBootSplash() {
+  try {
+    window.clearTimeout((window as any).__NOWEN_BOOT_TIMER__);
+    const el = document.getElementById("app-boot-splash");
+    if (!el) return;
+    el.classList.add("app-boot-splash--leaving");
+    window.setTimeout(() => el.remove(), 220);
+  } catch {
+    /* ignore */
+  }
+}
+
+function BootSplashRemover() {
+  React.useEffect(() => {
+    removeBootSplash();
+  }, []);
+  return null;
+}
+
 // 在应用渲染前应用已保存的代码块主题，避免首帧闪烁
 initCodeBlockTheme();
 
@@ -30,6 +49,7 @@ try {
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
+    <BootSplashRemover />
     <App />
   </React.StrictMode>
 );
