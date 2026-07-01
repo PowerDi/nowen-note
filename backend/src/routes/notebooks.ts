@@ -12,6 +12,10 @@ import {
 import { notebookRoleToPermission } from "../services/notebook-permissions";
 import { broadcastNoteDeleted } from "../services/realtime";
 import { notebookShareLinksRepository, notebookMembersRepository } from "../repositories";
+import {
+  copyPersonalNotebookToWorkspace,
+  WorkspaceNotebookTransferError,
+} from "../services/workspaceNotebookTransfer";
 
 const app = new Hono();
 
@@ -455,6 +459,33 @@ app.post("/", async (c) => {
   );
   const notebook = db.prepare("SELECT * FROM notebooks WHERE id = ?").get(id);
   return c.json(notebook, 201);
+});
+
+// 复制个人空间笔记本到团队空间（V1 只支持 copy，不支持 move）
+app.post("/:id/transfer", async (c) => {
+  const userId = c.req.header("X-User-Id") || "";
+  const id = c.req.param("id");
+  const body = await c.req.json().catch(() => ({}));
+
+  try {
+    const result = copyPersonalNotebookToWorkspace({
+      actorUserId: userId,
+      sourceNotebookId: id,
+      targetWorkspaceId: String(body.targetWorkspaceId || ""),
+      targetParentId: body.targetParentId ?? null,
+      mode: body.mode || "copy",
+      includeTags: body.includeTags !== false,
+      includeAttachments: body.includeAttachments !== false,
+      includeVersions: body.includeVersions === true,
+    });
+    return c.json(result);
+  } catch (err: any) {
+    if (err instanceof WorkspaceNotebookTransferError) {
+      return c.json({ error: err.message, code: err.code }, err.status);
+    }
+    console.error("[notebooks.transfer] failed:", err);
+    return c.json({ error: "transfer failed", code: "TRANSFER_FAILED" }, 500);
+  }
 });
 
 // 移动笔记本
