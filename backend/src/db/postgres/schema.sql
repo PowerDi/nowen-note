@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS note_versions (
     title TEXT,
     content TEXT,
     "contentText" TEXT,
+    "contentFormat" TEXT NOT NULL DEFAULT 'tiptap-json',
     version INTEGER NOT NULL,
     "changeType" TEXT DEFAULT 'edit',
     "changeSummary" TEXT,

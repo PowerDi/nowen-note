@@ -504,7 +504,7 @@ app.put("/:id", async (c) => {
   //     情况下直接覆盖。元数据操作（isPinned / isFavorite / isArchived / isTrashed /
   //     isLocked / sortOrder / notebookId）不强制 version，这样右键菜单的快捷操作
   //     不会被阻塞。
-  const versionRequiredFields = ["title", "content", "contentText"];
+  const versionRequiredFields = ["title", "content", "contentText", "contentFormat"];
   const needsVersion = versionRequiredFields.some((f) => body[f] !== undefined);
 
   if (needsVersion && body.version === undefined) {
@@ -543,7 +543,7 @@ app.put("/:id", async (c) => {
   }
 
   // 锁定保护：锁定状态下禁止修改内容（但允许切换 isLocked 本身和元数据操作）
-  const contentFields = ["title", "content", "contentText", "notebookId"];
+  const contentFields = ["title", "content", "contentText", "contentFormat", "notebookId"];
   const isContentChange = contentFields.some((f) => body[f] !== undefined);
   const isOnlyLockToggle = body.isLocked !== undefined && Object.keys(body).filter(k => k !== "isLocked" && k !== "version").length === 0;
 
@@ -621,11 +621,13 @@ app.put("/:id", async (c) => {
 
   // Phase 3: 保存版本历史（仅在内容有实质变更时）
   const VERSION_MERGE_WINDOW_MS = 5 * 60 * 1000; // 5 分钟
-  if (body.content !== undefined || body.title !== undefined) {
-    const currentNote = db.prepare("SELECT title, content, contentText, version, userId FROM notes WHERE id = ?").get(id) as any;
+  if (body.content !== undefined || body.contentText !== undefined || body.title !== undefined || body.contentFormat !== undefined) {
+    const currentNote = db.prepare("SELECT title, content, contentText, contentFormat, version, userId FROM notes WHERE id = ?").get(id) as any;
     if (currentNote) {
       const hasContentChange = (body.content !== undefined && body.content !== currentNote.content)
-        || (body.title !== undefined && body.title !== currentNote.title);
+        || (body.contentText !== undefined && body.contentText !== currentNote.contentText)
+        || (body.title !== undefined && body.title !== currentNote.title)
+        || (body.contentFormat !== undefined && body.contentFormat !== currentNote.contentFormat);
       if (hasContentChange) {
         const lastEdit = noteVersionsRepository.getLastEditByNoteId(id);
 
@@ -650,6 +652,7 @@ app.put("/:id", async (c) => {
             title: currentNote.title,
             content: currentNote.content,
             contentText: currentNote.contentText,
+            contentFormat: currentNote.contentFormat,
             version: currentNote.version,
             changeType: 'edit',
           });
@@ -767,7 +770,7 @@ app.put("/:id", async (c) => {
   }
   if (body.sortOrder !== undefined) { fields.push("sortOrder = ?"); params.push(body.sortOrder); }
 
-  const contentFieldNames = ["title", "content", "contentText", "notebookId"];
+  const contentFieldNames = ["title", "content", "contentText", "contentFormat", "notebookId"];
   const hasContentFieldChange = contentFieldNames.some((f) => body[f] !== undefined);
 
   // Y1: 判断本次 PUT 是否"只切换了 favorites"——此时 fields 数组会是空的。

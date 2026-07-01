@@ -331,7 +331,7 @@ sharedRouter.get("/:token/content", (c) => {
 
   const share = db.prepare(`
     SELECT s.id AS shareId, s.noteId, s.isActive, s.expiresAt, s.maxViews, s.viewCount, s.password, s.permission,
-           n.title, n.content, n.contentText, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
+           n.title, n.content, n.contentText, n.contentFormat, n.updatedAt AS noteUpdatedAt, n.version AS noteVersion,
            n.isLocked AS noteIsLocked,
            n.userId AS noteOwnerId
     FROM shares s
@@ -395,6 +395,7 @@ sharedRouter.get("/:token/content", (c) => {
     title: share.title,
     content: rewrittenContent,
     contentText: share.contentText,
+    contentFormat: share.contentFormat,
     permission: share.permission,
     updatedAt: share.noteUpdatedAt,
     version: share.noteVersion,
@@ -420,10 +421,11 @@ sharedRouter.put("/:token/content", async (c) => {
   const db = getDb();
   const token = c.req.param("token");
   const body = await c.req.json();
-  const { title, content, contentText, version, guestName } = body as {
+  const { title, content, contentText, contentFormat, version, guestName } = body as {
     title?: string;
     content?: string;
     contentText?: string;
+    contentFormat?: string;
     version?: number;
     guestName?: string;
   };
@@ -432,7 +434,7 @@ sharedRouter.put("/:token/content", async (c) => {
   const share = db.prepare(`
     SELECT s.id AS shareId, s.noteId, s.permission, s.password, s.isActive, s.expiresAt, s.maxViews, s.viewCount,
            n.isLocked, n.version AS noteVersion, n.title AS noteTitle, n.content AS noteContent,
-           n.contentText AS noteContentText, n.userId AS noteUserId
+           n.contentText AS noteContentText, n.contentFormat AS noteContentFormat, n.userId AS noteUserId
     FROM shares s
     LEFT JOIN notes n ON s.noteId = n.id
     WHERE s.shareToken = ?
@@ -494,14 +496,21 @@ sharedRouter.put("/:token/content", async (c) => {
   }
 
   // 6) 乐观锁
+  const hasContentUpdate =
+    title !== undefined || content !== undefined || contentText !== undefined || contentFormat !== undefined;
+  if (hasContentUpdate && version === undefined) {
+    return c.json({ error: "缺少 version 字段，无法安全保存", code: "VERSION_REQUIRED" }, 400);
+  }
   if (version !== undefined && version !== share.noteVersion) {
     return c.json({ error: "内容已被他人更新，请刷新后再编辑", code: "VERSION_CONFLICT", currentVersion: share.noteVersion }, 409);
   }
 
   // 7) 写入前先存一份版本历史（保留原内容，便于回滚），changeType=guest_edit，用 changeSummary 记录访客昵称
   //    userId 暂使用笔记所有者（访客无对应 users 记录）；真正的访客身份在 changeSummary 中。
-  if (content !== undefined || title !== undefined) {
+  if (hasContentUpdate) {
     const hasContentChange = (content !== undefined && content !== share.noteContent)
+      || (contentText !== undefined && contentText !== share.noteContentText)
+      || (contentFormat !== undefined && contentFormat !== share.noteContentFormat)
       || (title !== undefined && title !== share.noteTitle);
     if (hasContentChange) {
       const versionId = uuid();
@@ -512,6 +521,7 @@ sharedRouter.put("/:token/content", async (c) => {
         title: share.noteTitle,
         content: share.noteContent,
         contentText: share.noteContentText,
+        contentFormat: share.noteContentFormat,
         version: share.noteVersion,
         changeType: 'guest_edit',
         changeSummary: `访客 ${trimmedName} 编辑`,
@@ -525,17 +535,19 @@ sharedRouter.put("/:token/content", async (c) => {
   if (title !== undefined) { fields.push("title = ?"); params.push(title); }
   if (content !== undefined) { fields.push("content = ?"); params.push(content); }
   if (contentText !== undefined) { fields.push("contentText = ?"); params.push(contentText); }
+  if (contentFormat !== undefined) { fields.push("contentFormat = ?"); params.push(contentFormat); }
   fields.push("version = version + 1");
   fields.push("updatedAt = datetime('now')");
   params.push(share.noteId);
 
   db.prepare(`UPDATE notes SET ${fields.join(", ")} WHERE id = ?`).run(...params);
-  const updated = db.prepare("SELECT id, title, version, updatedAt FROM notes WHERE id = ?").get(share.noteId) as any;
+  const updated = db.prepare("SELECT id, title, contentFormat, version, updatedAt FROM notes WHERE id = ?").get(share.noteId) as any;
 
   return c.json({
     success: true,
     noteId: updated.id,
     title: updated.title,
+    contentFormat: updated.contentFormat,
     version: updated.version,
     updatedAt: updated.updatedAt,
     guestName: trimmedName,
@@ -606,6 +618,7 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
       title: note.title,
       content: note.content,
       contentText: note.contentText,
+      contentFormat: note.contentFormat,
       version: note.version,
       changeType: 'restore',
       changeSummary: "恢复前自动备份",
@@ -613,9 +626,9 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
 
     db.prepare(`
       UPDATE notes
-      SET title = ?, content = ?, contentText = ?, version = version + 1, updatedAt = datetime('now')
+      SET title = ?, content = ?, contentText = ?, contentFormat = ?, version = version + 1, updatedAt = datetime('now')
       WHERE id = ?
-    `).run(version.title, version.content, version.contentText, noteId);
+    `).run(version.title, version.content, version.contentText, version.contentFormat || "tiptap-json", noteId);
 
     syncAttachmentReferences(db, noteId, version.content);
     noteYupdatesRepository.deleteByNoteId(noteId);
@@ -624,7 +637,7 @@ sharesRouter.post("/note/:noteId/versions/:versionId/restore", (c) => {
     return db.prepare(`
       SELECT id, userId, notebookId, workspaceId, title, content, contentText, isPinned,
         CASE WHEN EXISTS(SELECT 1 FROM favorites f WHERE f.noteId = notes.id AND f.userId = ?) THEN 1 ELSE 0 END AS isFavorite,
-        isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt
+        isLocked, isArchived, isTrashed, version, sortOrder, createdAt, updatedAt, trashedAt, contentFormat
       FROM notes WHERE id = ?
     `).get(userId, noteId) as any;
   })();

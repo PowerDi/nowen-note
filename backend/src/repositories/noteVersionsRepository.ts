@@ -40,6 +40,7 @@ export interface NoteVersionRecord {
   title: string | null;
   content: string | null;
   contentText: string | null;
+  contentFormat: string;
   version: number;
   changeType: string;
   changeSummary: string | null;
@@ -140,6 +141,7 @@ export const noteVersionsRepository = {
     title: string;
     content: string;
     contentText: string;
+    contentFormat?: string;
     version: number;
     changeType: 'edit' | 'guest_edit' | 'restore';
     changeSummary?: string;
@@ -149,27 +151,28 @@ export const noteVersionsRepository = {
     const db = getDb();
     const hasChangeSummary = input.changeSummary !== undefined;
     const hasCreatedAt = input.createdAt !== undefined;
+    const contentFormat = input.contentFormat || "tiptap-json";
 
     if (hasChangeSummary && hasCreatedAt) {
       db.prepare(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary, input.createdAt);
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "changeSummary", "createdAt")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.changeSummary, input.createdAt);
     } else if (hasChangeSummary) {
       db.prepare(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary);
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "changeSummary")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.changeSummary);
     } else if (hasCreatedAt) {
       db.prepare(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.createdAt);
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "createdAt")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.createdAt);
     } else {
       db.prepare(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType);
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType);
     }
   },
 
@@ -233,7 +236,7 @@ export const noteVersionsRepository = {
     const placeholders = noteIds.map(() => "?").join(",");
     return db
       .prepare(
-        `SELECT id, "noteId", "userId", title, content, "contentText", version,
+        `SELECT id, "noteId", "userId", title, content, "contentText", "contentFormat", version,
                 "changeType", "changeSummary", "createdAt"
          FROM note_versions
          WHERE "noteId" IN (${placeholders})`,
@@ -311,6 +314,7 @@ export const noteVersionsRepository = {
     title: string;
     content: string;
     contentText: string;
+    contentFormat?: string;
     version: number;
     changeType: 'edit' | 'guest_edit' | 'restore';
     changeSummary?: string;
@@ -318,30 +322,31 @@ export const noteVersionsRepository = {
   }): Promise<void> {
     const hasChangeSummary = input.changeSummary !== undefined;
     const hasCreatedAt = input.createdAt !== undefined;
+    const contentFormat = input.contentFormat || "tiptap-json";
 
     if (hasChangeSummary && hasCreatedAt) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary, input.createdAt],
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "changeSummary", "createdAt")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.changeSummary, input.createdAt],
       );
     } else if (hasChangeSummary) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "changeSummary")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.changeSummary],
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "changeSummary")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.changeSummary],
       );
     } else if (hasCreatedAt) {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType", "createdAt")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType, input.createdAt],
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType", "createdAt")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType, input.createdAt],
       );
     } else {
       await getAdapter().execute(
-        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", version, "changeType")
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, input.version, input.changeType],
+        `INSERT INTO note_versions (id, "noteId", "userId", title, content, "contentText", "contentFormat", version, "changeType")
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [input.id, input.noteId, input.userId, input.title, input.content, input.contentText, contentFormat, input.version, input.changeType],
       );
     }
   },
@@ -376,7 +381,7 @@ export const noteVersionsRepository = {
     if (noteIds.length === 0) return [];
     const placeholders = noteIds.map(() => "?").join(",");
     return getAdapter().queryMany<NoteVersionRecord>(
-      `SELECT id, "noteId", "userId", title, content, "contentText", version,
+      `SELECT id, "noteId", "userId", title, content, "contentText", "contentFormat", version,
               "changeType", "changeSummary", "createdAt"
        FROM note_versions
        WHERE "noteId" IN (${placeholders})`,

@@ -42,6 +42,21 @@ test("createAsync inserts version", async () => {
   clean();
 });
 
+test("createAsync stores contentFormat for markdown versions", async () => {
+  clean();
+  seedBase();
+  await noteVersionsRepository.createAsync({
+    id: "v-md", noteId: NOTE_ID, userId: USER_ID,
+    title: "Markdown", content: "# Title", contentText: "Title",
+    contentFormat: "markdown",
+    version: 1, changeType: "edit",
+  });
+  const row = await noteVersionsRepository.getByIdAndNoteIdAsync("v-md", NOTE_ID);
+  assert.ok(row);
+  assert.equal(row.contentFormat, "markdown");
+  clean();
+});
+
 test("createAsync with changeSummary", async () => {
   clean();
   seedBase();

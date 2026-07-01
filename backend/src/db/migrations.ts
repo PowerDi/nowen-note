@@ -1862,6 +1862,16 @@ export const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  // v40: note_versions 增加 contentFormat，确保 Markdown / 富文本版本恢复时格式不丢失。
+  {
+    version: 40,
+    name: "note-versions-add-contentFormat",
+    up: (db) => {
+      const cols = db.prepare("PRAGMA table_info(note_versions)").all() as { name: string }[];
+      if (cols.some((c) => c.name === "contentFormat")) return;
+      db.prepare("ALTER TABLE note_versions ADD COLUMN contentFormat TEXT NOT NULL DEFAULT 'tiptap-json'").run();
+    },
+  },
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */
