@@ -86,6 +86,41 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && !!target.closest("input, textarea, [contenteditable='true']");
 }
 
+type MindMapSelectionRect = { x: number; y: number; width: number; height: number };
+
+export function getNodeScreenRect(
+  node: Pick<LayoutNode, "x" | "y" | "width" | "height">,
+  pan: { x: number; y: number },
+  zoom: number,
+): MindMapSelectionRect {
+  return {
+    x: pan.x + node.x * zoom,
+    y: pan.y + node.y * zoom,
+    width: node.width * zoom,
+    height: node.height * zoom,
+  };
+}
+
+export function rectsIntersect(a: MindMapSelectionRect, b: MindMapSelectionRect): boolean {
+  return (
+    a.x <= b.x + b.width &&
+    a.x + a.width >= b.x &&
+    a.y <= b.y + b.height &&
+    a.y + a.height >= b.y
+  );
+}
+
+export function hitTestSelectionRect(
+  selectionRect: MindMapSelectionRect,
+  nodes: Array<Pick<LayoutNode, "id" | "x" | "y" | "width" | "height">>,
+  pan: { x: number; y: number },
+  zoom: number,
+): string[] {
+  return nodes
+    .filter((node) => rectsIntersect(selectionRect, getNodeScreenRect(node, pan, zoom)))
+    .map((node) => node.id);
+}
+
 function getSubtreeHeight(node: LayoutNode): number {
   if (node.children.length === 0) return node.height;
   let total = 0;
@@ -798,7 +833,7 @@ export default function MindMapCenter() {
   const [isPanning, setIsPanning] = useState(false);
   const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
   const [isSpacePressed, setIsSpacePressed] = useState(false);
-  const [selectionRect, setSelectionRect] = useState<null | { x: number; y: number; width: number; height: number }>(null);
+  const [selectionRect, setSelectionRect] = useState<null | MindMapSelectionRect>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapDataRef = useRef<MindMapData | null>(null);
@@ -1818,24 +1853,19 @@ export default function MindMapCenter() {
     return { x: clientX - rect.left, y: clientY - rect.top };
   }, [canvasEl]);
 
-  const hitTestSelection = useCallback((rect: { x: number; y: number; width: number; height: number }) => {
-    const x1 = (rect.x - pan.x) / zoom;
-    const y1 = (rect.y - pan.y) / zoom;
-    const x2 = (rect.x + rect.width - pan.x) / zoom;
-    const y2 = (rect.y + rect.height - pan.y) / zoom;
-    const minX = Math.min(x1, x2);
-    const minY = Math.min(y1, y2);
-    const maxX = Math.max(x1, x2);
-    const maxY = Math.max(y1, y2);
+  const createSelectionRect = useCallback((startClientX: number, startClientY: number, endClientX: number, endClientY: number): MindMapSelectionRect => {
+    const start = toCanvasPoint(startClientX, startClientY);
+    const current = toCanvasPoint(endClientX, endClientY);
+    return {
+      x: Math.min(start.x, current.x),
+      y: Math.min(start.y, current.y),
+      width: Math.abs(current.x - start.x),
+      height: Math.abs(current.y - start.y),
+    };
+  }, [toCanvasPoint]);
 
-    return layoutNodes
-      .filter((node) => (
-        node.x <= maxX &&
-        node.x + node.width >= minX &&
-        node.y <= maxY &&
-        node.y + node.height >= minY
-      ))
-      .map((node) => node.id);
+  const hitTestSelection = useCallback((rect: MindMapSelectionRect) => {
+    return hitTestSelectionRect(rect, layoutNodes, pan, zoom);
   }, [layoutNodes, pan, zoom]);
 
   const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
@@ -1886,20 +1916,13 @@ export default function MindMapCenter() {
       return;
     }
 
-    const start = toCanvasPoint(pointer.startX, pointer.startY);
-    const current = toCanvasPoint(e.clientX, e.clientY);
-    const rect = {
-      x: Math.min(start.x, current.x),
-      y: Math.min(start.y, current.y),
-      width: Math.abs(current.x - start.x),
-      height: Math.abs(current.y - start.y),
-    };
+    const rect = createSelectionRect(pointer.startX, pointer.startY, e.clientX, e.clientY);
     setSelectionRect(rect);
     const ids = rect.width > 3 || rect.height > 3 ? hitTestSelection(rect) : [];
     if (ids.length > 0 || rect.width > 3 || rect.height > 3) suppressCanvasClickRef.current = true;
     setSelectedNodeIds(ids);
     setSelectedNodeId(ids[ids.length - 1] || null);
-  }, [hitTestSelection, toCanvasPoint]);
+  }, [createSelectionRect, hitTestSelection]);
 
   const handleCanvasPointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     const pointer = pointerStateRef.current;
@@ -1919,11 +1942,18 @@ export default function MindMapCenter() {
       };
       applyViewport({ ...nextPan, zoom, userSet: true }, { userSet: true, persist: true });
     } else if (pointer.mode === "select") {
+      const rect = createSelectionRect(pointer.startX, pointer.startY, e.clientX, e.clientY);
+      const ids = rect.width > 3 || rect.height > 3 ? hitTestSelection(rect) : [];
+      if (rect.width > 3 || rect.height > 3) {
+        suppressCanvasClickRef.current = true;
+        setSelectedNodeIds(ids);
+        setSelectedNodeId(ids[ids.length - 1] || null);
+      }
       setSelectionRect(null);
     }
 
     pointerStateRef.current = { mode: "none", pointerId: null, startX: 0, startY: 0, panX: 0, panY: 0 };
-  }, [applyViewport, zoom]);
+  }, [applyViewport, createSelectionRect, hitTestSelection, zoom]);
 
   // 列表右键菜单
   const [folderContextMenu, setFolderContextMenu] = useState<{ x: number; y: number; folderId: string; folderName: string } | null>(null);
