@@ -34,6 +34,7 @@ import { repairTiptapJson } from "@/lib/tiptapSchemaRepair";
 import { markdownToHtml as mdToFullHtml, detectFormat as detectContentFormat, tiptapJsonToMarkdown } from "@/lib/contentFormat";
 import { api } from "@/lib/api";
 import { uploadAndInsertImage } from "@/lib/imageUploadService";
+import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
 import { extractRtfImagesAsync } from "@/lib/rtfImageWorkerClient";
 import { replaceDataUrlImagesWithAttachments } from "@/lib/rtfImageUploader";
 import {
@@ -73,7 +74,7 @@ import {
 } from "@/components/FontSizeExtension";
 import CodeBlockView from "@/components/CodeBlockView";
 import { SearchReplacePanel, createSearchReplaceExtension, searchReplacePluginKey } from "@/components/SearchReplacePanel";
-import { Video as VideoExtension } from "@/components/VideoExtension";
+import { Video as VideoExtension, createVideoFileAttrs } from "@/components/VideoExtension";
 import { serializeProseMirrorPlainText } from "@/lib/proseMirrorPlainText";
 import {
   insertPlainTextPreservingParagraphs,
@@ -1841,14 +1842,32 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                 const node = view.state.schema.nodes.image?.create({ src });
                 if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
               };
+              const insertVideoToView = (result: MediaUploadResult) => {
+                const node = view.state.schema.nodes.video?.create(
+                  createVideoFileAttrs({
+                    previewUrl: result.previewUrl,
+                    url: result.url,
+                    attachmentId: result.attachmentId,
+                    filename: result.filename,
+                    mimeType: result.mimeType,
+                    size: result.size,
+                  }),
+                );
+                if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
+              };
               const uploadAll = async () => {
                 for (const file of pastedFiles) {
                   try {
-                    const res = await api.attachments.upload(currentNote.id, file);
-                    if (res.category === "image") {
-                      insertImageToView(res.url);
+                    if (isVideoFile(file)) {
+                      const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "paste" });
+                      insertVideoToView(res);
                     } else {
-                      insertAttachmentToView(res.filename, res.url, res.size);
+                      const res = await api.attachments.upload(currentNote.id, file);
+                      if (res.category === "image") {
+                        insertImageToView(res.url);
+                      } else {
+                        insertAttachmentToView(res.filename, res.url, res.size);
+                      }
                     }
                   } catch (err) {
                     console.error("Paste attachment upload failed:", err);
@@ -2260,6 +2279,19 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           const node = view.state.schema.nodes.image?.create({ src });
           if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
         };
+        const insertVideoToView = (result: MediaUploadResult) => {
+          const node = view.state.schema.nodes.video?.create(
+            createVideoFileAttrs({
+              previewUrl: result.previewUrl,
+              url: result.url,
+              attachmentId: result.attachmentId,
+              filename: result.filename,
+              mimeType: result.mimeType,
+              size: result.size,
+            }),
+          );
+          if (node) view.dispatch(view.state.tr.replaceSelectionWith(node));
+        };
 
         showPasteToast("converting", t("tiptap.attachmentUploading"));
         (async () => {
@@ -2275,6 +2307,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
                   (url) => insertImageToView(url),
                   "drag-drop",
                 );
+              } else if (isVideoFile(file)) {
+                const res = await uploadMediaAttachment({ noteId: currentNote.id, file, source: "drag-drop" });
+                insertVideoToView(res);
               } else {
                 // 非图片文件：走本地附件
                 const res = await api.attachments.upload(currentNote.id, file);
@@ -3378,6 +3413,53 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editor.chain().focus().setImage({ src }).run();
   }, [editor, t]);
 
+  const handleVideoUpload = useCallback(() => {
+    if (!editor) return;
+    const currentNote = noteRef.current;
+    if (!currentNote?.id) {
+      toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "video/*";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (!isVideoFile(file)) {
+        toast.error(t("tiptap.videoFileInvalid") || "请选择视频文件");
+        return;
+      }
+      toast.info(t("tiptap.videoUploading") || "Uploading video...");
+      uploadMediaAttachment({ noteId: currentNote.id, file, source: "editor" })
+        .then((res) => {
+          const ok = (editor.commands as any).setVideoFile({
+            previewUrl: res.previewUrl,
+            url: res.url,
+            attachmentId: res.attachmentId,
+            filename: res.filename,
+            mimeType: res.mimeType,
+            size: res.size,
+          });
+          if (ok) {
+            toast.success(t("tiptap.videoUploaded") || "Video uploaded");
+          } else {
+            toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
+          }
+        })
+        .catch((err: any) => {
+          console.error("Video upload failed:", err);
+          const msg = String(err?.message || "");
+          if (/最大|max\s+\d+\s*MB/i.test(msg)) {
+            toast.error(t("tiptap.attachmentTooLarge") || "File too large");
+          } else {
+            toast.error(t("tiptap.videoUploadFailed") || "Video upload failed");
+          }
+        });
+    };
+    input.click();
+  }, [editor, t]);
+
   /**
    * 任意格式附件上传 → 在编辑器当前位置插入：
    *   - 图片（image/*）：当作 <img> 插入，与 handleImageUpload 一致路径
@@ -3419,6 +3501,19 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           if (res.category === "image") {
             // 图片：与 handleImageUpload 一致，走 setImage
             editor!.chain().focus().setImage({ src: res.url }).run();
+          } else if (isVideoFile(file)) {
+            const ok = (editor!.commands as any).setVideoFile({
+              previewUrl: toInlineAttachmentUrl(res.url),
+              url: res.url,
+              attachmentId: res.id,
+              filename: res.filename,
+              mimeType: res.mimeType,
+              size: res.size,
+            });
+            if (!ok) {
+              const html = buildAttachmentLinkHtml(res.filename, res.url, res.size);
+              editor!.chain().focus().insertContent(html).run();
+            }
           } else {
             const html = buildAttachmentLinkHtml(res.filename, res.url, res.size);
             editor!.chain().focus().insertContent(html).run();
@@ -3843,6 +3938,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           }}
           title={t('tiptap.insertVideo') || '插入视频'}
         >
+          <Film size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadVideo') || '上传本地视频'}>
           <Film size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={handleAttachmentUpload} title={t('tiptap.insertAttachment')}>
