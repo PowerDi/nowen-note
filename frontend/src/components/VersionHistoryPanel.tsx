@@ -8,6 +8,8 @@ import { NoteVersion } from "@/types";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { toast } from "@/lib/toast";
+import { MarkdownPreview } from "@/components/MarkdownPreview";
+import { normalizeToMarkdown } from "@/lib/contentFormat";
 
 interface VersionHistoryPanelProps {
   noteId: string;
@@ -16,18 +18,57 @@ interface VersionHistoryPanelProps {
   onClose: () => void;
 }
 
+interface VersionPreviewState {
+  version: NoteVersion;
+  previewMarkdown: string;
+  contentFormatLabel: string;
+}
+
+export function versionContentFormatLabel(contentFormat?: string | null): string {
+  switch (contentFormat) {
+    case "markdown":
+      return "Markdown";
+    case "tiptap-json":
+      return "Rich Text";
+    case "html":
+      return "HTML";
+    default:
+      return "Unknown";
+  }
+}
+
+export function versionToPreviewMarkdown(version: NoteVersion): string {
+  const content = version.content || "";
+  const contentText = version.contentText || "";
+
+  if ((version.contentFormat || "tiptap-json") === "markdown") {
+    return content || contentText;
+  }
+
+  try {
+    const markdown = normalizeToMarkdown(content, contentText);
+    if (version.contentFormat === "tiptap-json" && markdown === content && contentText) {
+      return contentText;
+    }
+    return markdown || contentText || content;
+  } catch (e) {
+    console.warn("[VersionHistoryPanel] preview conversion failed:", e);
+    return contentText || content;
+  }
+}
+
 export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onClose }: VersionHistoryPanelProps) {
   const { t } = useTranslation();
   const [versions, setVersions] = useState<NoteVersion[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [selectedVersion, setSelectedVersion] = useState<NoteVersion | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewVersion, setPreviewVersion] = useState<VersionPreviewState | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [confirmRestore, setConfirmRestore] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const selectedVersion = previewVersion?.version || null;
 
   const handleClearAll = async () => {
     if (clearing) return;
@@ -40,8 +81,7 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
       const res = await api.clearNoteVersions(noteId);
       setVersions([]);
       setTotal(0);
-      setSelectedVersion(null);
-      setPreviewContent(null);
+      setPreviewVersion(null);
       setConfirmClear(false);
       toast.success(t("versions.clearSuccess", { count: res.count }));
     } catch (e: any) {
@@ -71,18 +111,34 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
   // 预览版本内容
   const handlePreview = async (version: NoteVersion) => {
     if (selectedVersion?.id === version.id) {
-      setSelectedVersion(null);
-      setPreviewContent(null);
+      setPreviewVersion(null);
       return;
     }
-    setSelectedVersion(version);
+    setPreviewVersion({
+      version,
+      previewMarkdown: "",
+      contentFormatLabel: versionContentFormatLabel(version.contentFormat),
+    });
     setLoadingPreview(true);
     try {
       const data = await api.getNoteVersion(noteId, version.id);
-      setPreviewContent(data.contentText || "");
+      setPreviewVersion({
+        version: data,
+        previewMarkdown: versionToPreviewMarkdown(data),
+        contentFormatLabel: versionContentFormatLabel(data.contentFormat),
+      });
     } catch (e) {
       console.error("加载版本内容失败:", e);
-      setPreviewContent(t("versions.loadFailed"));
+      setPreviewVersion({
+        version: {
+          ...version,
+          content: t("versions.loadFailed"),
+          contentText: t("versions.loadFailed"),
+          contentFormat: "markdown",
+        },
+        previewMarkdown: t("versions.loadFailed"),
+        contentFormatLabel: versionContentFormatLabel(version.contentFormat),
+      });
     } finally {
       setLoadingPreview(false);
     }
@@ -247,9 +303,14 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-medium text-tx-primary truncate">{selectedVersion.title}</p>
-                      <p className="text-[10px] text-tx-tertiary">
-                        {t("versions.versionLabel", { version: selectedVersion.version })} · {formatTime(selectedVersion.createdAt)}
-                      </p>
+                      <div className="mt-1 flex items-center gap-1.5 text-[10px] text-tx-tertiary">
+                        <span>
+                          {t("versions.versionLabel", { version: selectedVersion.version })} · {formatTime(selectedVersion.createdAt)}
+                        </span>
+                        <span className="rounded bg-app-hover px-1.5 py-0.5 text-[9px] font-medium text-tx-secondary">
+                          {previewVersion?.contentFormatLabel || versionContentFormatLabel(selectedVersion.contentFormat)}
+                        </span>
+                      </div>
                     </div>
                     {confirmRestore === selectedVersion.id ? (
                       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -285,15 +346,21 @@ export default function VersionHistoryPanel({ noteId, noteTitle, onRestore, onCl
                   </div>
                 </div>
                 <ScrollArea className="flex-1">
-                  <div className="px-4 py-3">
+                  <div className="min-h-[240px]">
                     {loadingPreview ? (
                       <div className="flex items-center justify-center py-8">
                         <Loader2 size={16} className="animate-spin text-tx-tertiary" />
                       </div>
+                    ) : previewVersion?.previewMarkdown?.trim() ? (
+                      <MarkdownPreview
+                        markdown={previewVersion.previewMarkdown}
+                        compact
+                        className="min-h-[240px] break-words"
+                      />
                     ) : (
-                      <pre className="text-xs text-tx-secondary whitespace-pre-wrap break-words font-mono leading-relaxed">
-                        {previewContent || t("versions.emptyContent")}
-                      </pre>
+                      <div className="flex min-h-[240px] items-center justify-center px-4 py-8 text-xs text-tx-tertiary">
+                        {t("versions.emptyContent")}
+                      </div>
                     )}
                   </div>
                 </ScrollArea>

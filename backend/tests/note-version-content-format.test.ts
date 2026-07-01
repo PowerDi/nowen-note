@@ -158,6 +158,53 @@ test("restoring a markdown version restores contentFormat and returns it", async
   assert.equal(row.version, 2);
 });
 
+test("restore creates a reversible snapshot of the current content", async () => {
+  seedNote("markdown");
+  db().prepare(`
+    UPDATE notes
+    SET title = ?, content = ?, contentText = ?, contentFormat = ?, version = ?
+    WHERE id = ?
+  `).run("Content B", "## B\n\ncurrent", "B current", "markdown", 2, NOTE_ID);
+  await noteVersionsRepository.createAsync({
+    id: "version-a",
+    noteId: NOTE_ID,
+    userId: USER_ID,
+    title: "Content A",
+    content: "# A\n\nold",
+    contentText: "A old",
+    contentFormat: "markdown",
+    version: 1,
+    changeType: "edit",
+  });
+
+  const restoreA = await requestJson("POST", `/shares/note/${NOTE_ID}/versions/version-a/restore`);
+
+  assert.equal(restoreA.status, 200);
+  assert.equal(restoreA.json.title, "Content A");
+  assert.equal(restoreA.json.contentFormat, "markdown");
+  const restoreSnapshot = db().prepare(`
+    SELECT id, title, content, contentText, contentFormat, version, changeType, changeSummary
+    FROM note_versions
+    WHERE noteId = ? AND changeType = 'restore'
+  `).get(NOTE_ID) as any;
+  assert.ok(restoreSnapshot);
+  assert.equal(restoreSnapshot.title, "Content B");
+  assert.equal(restoreSnapshot.content, "## B\n\ncurrent");
+  assert.equal(restoreSnapshot.contentText, "B current");
+  assert.equal(restoreSnapshot.contentFormat, "markdown");
+  assert.equal(restoreSnapshot.version, 2);
+  assert.equal(restoreSnapshot.changeSummary, "恢复前自动备份");
+
+  const restoreB = await requestJson("POST", `/shares/note/${NOTE_ID}/versions/${restoreSnapshot.id}/restore`);
+
+  assert.equal(restoreB.status, 200);
+  assert.equal(restoreB.json.title, "Content B");
+  assert.equal(restoreB.json.content, "## B\n\ncurrent");
+  assert.equal(restoreB.json.contentText, "B current");
+  assert.equal(restoreB.json.contentFormat, "markdown");
+  assert.equal(restoreB.json.version, 4);
+});
+
 test("shared content update requires version", async () => {
   seedNote();
   seedEditableShare();

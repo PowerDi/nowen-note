@@ -705,8 +705,9 @@ export interface NoteVersion {
   userId: string;
   username?: string;
   title: string;
-  content?: string;
-  contentText?: string;
+  content?: string | null;
+  contentText?: string | null;
+  contentFormat?: string | null;
   version: number;
   changeType: string;
   changeSummary: string | null;
