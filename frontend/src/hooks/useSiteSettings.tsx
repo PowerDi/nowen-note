@@ -97,15 +97,6 @@ function applyToDOM(title: string, faviconUrl: string) {
   document.head.appendChild(apple);
 }
 
-function hideStaticIcpBeianFooter() {
-  const footer = document.getElementById("beian-footer") as HTMLElement | null;
-  const link = document.getElementById("beian-link") as HTMLAnchorElement | null;
-  if (!footer) return;
-  footer.classList.remove("is-visible");
-  footer.style.display = "none";
-  if (link) link.textContent = "";
-}
-
 function applyEditorFont(fontId: string, customFontName?: string) {
   const builtin = BUILTIN_FONTS.find(f => f.id === fontId);
   if (builtin) {
@@ -153,8 +144,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
       };
       setSiteConfig(config);
       applyToDOM(config.title, config.favicon);
-      // 备案号由 LoginPage 根据数据库配置渲染；全局静态 footer 始终隐藏，避免登录后主工作台展示。
-      hideStaticIcpBeianFooter();
 
       // 加载自定义字体名
       if (config.editorFontFamily && !BUILTIN_FONTS.find(f => f.id === config.editorFontFamily)) {
@@ -172,7 +161,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
       setIsLoaded(true);
     }).catch(() => {
       applyToDOM(DEFAULT_CONFIG.title, DEFAULT_CONFIG.favicon);
-      hideStaticIcpBeianFooter();
       applyEditorFont("");
       setIsLoaded(true);
     });
@@ -202,7 +190,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     };
     setSiteConfig(config);
     applyToDOM(config.title, config.favicon);
-    hideStaticIcpBeianFooter();
   }, [siteConfig.editorFontFamily, siteConfig.icpBeian]);
 
   const updateIcpBeian = useCallback(async (icpBeian: string) => {
@@ -210,7 +197,6 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
     const data = await api.updateSiteSettings({ site_icp_beian: submitted } as any);
     const next = (data as any).site_icp_beian ?? submitted;
     setSiteConfig((prev) => ({ ...prev, icpBeian: next }));
-    hideStaticIcpBeianFooter();
   }, []);
 
   const updateEditorFont = useCallback(async (fontId: string) => {

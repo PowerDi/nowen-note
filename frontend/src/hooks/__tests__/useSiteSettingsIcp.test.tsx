@@ -6,15 +6,6 @@ import { setServerUrl } from "@/lib/api";
 
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 
-function installBeianFooter() {
-  document.body.innerHTML = `
-    <div id="root"></div>
-    <footer id="beian-footer" class="beian-footer">
-      <a id="beian-link" href="https://beian.miit.gov.cn/"></a>
-    </footer>
-  `;
-}
-
 async function waitFor(assertion: () => void) {
   const startedAt = Date.now();
   let lastError: unknown;
@@ -37,7 +28,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    installBeianFooter();
+    document.body.innerHTML = '<div id="root"></div>';
     host = document.getElementById("root")!;
     root = createRoot(host);
     fetchMock = vi.fn(async (url: string) => {
@@ -70,11 +61,16 @@ describe("SiteSettingsProvider ICP 备案号", () => {
     document.body.innerHTML = "";
   });
 
-  it("服务器地址确认后重新加载远端备案号并展示到登录页 footer", async () => {
+  it("服务器地址确认后重新加载远端备案号并写入 siteConfig", async () => {
+    function IcpStatus() {
+      const { siteConfig } = useSiteSettings();
+      return <span data-testid="icp">{siteConfig.icpBeian || "empty"}</span>;
+    }
+
     await act(async () => {
       root.render(
         <SiteSettingsProvider>
-          <div>login page</div>
+          <IcpStatus />
         </SiteSettingsProvider>,
       );
     });
@@ -82,16 +78,15 @@ describe("SiteSettingsProvider ICP 备案号", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/settings");
     });
-    expect(document.getElementById("beian-footer")?.classList.contains("is-visible")).toBe(false);
+    expect(host.querySelector("[data-testid='icp']")?.textContent).toBe("empty");
 
     await act(async () => {
       setServerUrl("https://notes.example.com");
     });
 
     await waitFor(() => {
-      expect(document.getElementById("beian-link")?.textContent).toBe("粤ICP备12345678号-1");
+      expect(host.querySelector("[data-testid='icp']")?.textContent).toBe("粤ICP备12345678号-1");
     });
-    expect(document.getElementById("beian-footer")?.classList.contains("is-visible")).toBe(true);
   });
 
   it("保存响应漏掉 site_icp_beian 时仍保留刚提交的备案号", async () => {
@@ -151,6 +146,5 @@ describe("SiteSettingsProvider ICP 备案号", () => {
     await waitFor(() => {
       expect(button.textContent).toBe("粤ICP备888888888号-X");
     });
-    expect(document.getElementById("beian-link")?.textContent).toBe("粤ICP备888888888号-X");
   });
 });
