@@ -26,3 +26,9 @@ test("public /api/settings response disables cache", () => {
   const routeSource = source.slice(routeStart, routeEnd);
   assert.match(routeSource, /Cache-Control["']?\s*,\s*["']no-store["']/);
 });
+
+test("ICP filing is sourced from docker env during startup seed", () => {
+  const source = readFileSync(path.resolve("src/db/seed.ts"), "utf8");
+  assert.match(source, /NOWEN_ICP_BEIAN/);
+  assert.match(source, /site_icp_beian/);
+});
