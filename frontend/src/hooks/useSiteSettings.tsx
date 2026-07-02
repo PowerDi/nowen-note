@@ -195,7 +195,9 @@ export function SiteSettingsProvider({ children }: { children: React.ReactNode }
   const updateIcpBeian = useCallback(async (icpBeian: string) => {
     const submitted = icpBeian.trim();
     const data = await api.updateSiteSettings({ site_icp_beian: submitted } as any);
-    const next = (data as any).site_icp_beian ?? submitted;
+    const saved = (data as any).site_icp_beian ?? submitted;
+    const latest = await api.getSiteSettingsPublic().catch(() => null);
+    const next = latest?.site_icp_beian ?? saved;
     setSiteConfig((prev) => ({ ...prev, icpBeian: next }));
   }, []);
 

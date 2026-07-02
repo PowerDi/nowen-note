@@ -96,7 +96,7 @@ describe("LoginPage ICP 备案号", () => {
     expect(rendered.host.textContent).not.toContain("ICP备");
   });
 
-  it("原生客户端运行时不展示备案号", async () => {
+  it("移动端原生客户端运行时不展示备案号", async () => {
     mockIcpBeian = "粤ICP备12345678号-1";
     (window as any).Capacitor = {
       isNativePlatform: () => true,
@@ -107,5 +107,15 @@ describe("LoginPage ICP 备案号", () => {
     root = rendered.root;
 
     expect(rendered.host.textContent).not.toContain("粤ICP备12345678号-1");
+  });
+
+  it("Electron 桌面端登录页仍展示备案号", async () => {
+    mockIcpBeian = "粤ICP备12345678号-1";
+    (window as any).nowenDesktop = { isDesktop: true };
+
+    const rendered = await renderLoginPage();
+    root = rendered.root;
+
+    expect(rendered.host.textContent).toContain("粤ICP备12345678号-1");
   });
 });

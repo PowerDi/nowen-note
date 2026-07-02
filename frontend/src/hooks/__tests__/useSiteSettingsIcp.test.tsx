@@ -99,8 +99,11 @@ describe("SiteSettingsProvider ICP 备案号", () => {
       );
     }
 
+    let savedIcp = "";
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       if (init?.method === "PUT") {
+        const payload = JSON.parse(String(init.body || "{}")) as { site_icp_beian?: string };
+        savedIcp = payload.site_icp_beian || "";
         return new Response(JSON.stringify({
           site_title: "nowen-note",
           site_favicon: "",
@@ -118,7 +121,7 @@ describe("SiteSettingsProvider ICP 备案号", () => {
       return new Response(JSON.stringify({
         site_title: "nowen-note",
         site_favicon: "",
-        site_icp_beian: "",
+        site_icp_beian: savedIcp,
         editor_font_family: "",
       }), {
         status: 200,

@@ -26,11 +26,10 @@ interface LoginPageProps {
 
 type Mode = "login" | "register";
 
-function isNativeClientRuntime(): boolean {
+function isMobileNativeClientRuntime(): boolean {
   try {
     const w = window as any;
-    return !!w.nowenDesktop?.isDesktop
-      || !!w.Capacitor?.isNativePlatform?.()
+    return !!w.Capacitor?.isNativePlatform?.()
       || (!!w.Capacitor?.platform && w.Capacitor.platform !== "web");
   } catch {
     return false;
@@ -67,7 +66,7 @@ export default function LoginPage({ onLogin, isClientMode = false, onDisconnect 
   const [error, setError] = useState("");
 
   const icpBeianText = siteConfig.icpBeian?.trim() || "";
-  const showIcpBeian = !!icpBeianText && !isNativeClientRuntime();
+  const showIcpBeian = !!icpBeianText && !isMobileNativeClientRuntime();
   const isRegister = mode === "register";
 
   useEffect(() => {

@@ -102,7 +102,7 @@ function IcpBeianSetting() {
         <div className="min-w-0">
           <div className="text-sm font-medium text-tx-primary">ICP备案号</div>
           <p className="text-xs text-tx-tertiary mt-0.5 leading-relaxed">
-            填写后会在网页底部展示；留空则不展示。桌面端和移动端原生 App 不显示。
+            保存后会在 Web / 桌面端登录页底部展示；留空则不展示。移动端原生 App 不显示。
           </p>
         </div>
         {message && (
