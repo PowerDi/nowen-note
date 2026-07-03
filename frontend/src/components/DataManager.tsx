@@ -482,6 +482,51 @@ export default function DataManager() {
     return messages;
   };
 
+  const getImportSourceLabel = (source?: string): string => {
+    switch (source?.toLowerCase()) {
+      case "siyuan-sy":
+        return t("dataManager.importSourceSiyuanSy");
+      case "siyuan":
+        return t("dataManager.importSourceSiyuanMarkdown");
+      case "md":
+      case "markdown":
+        return t("dataManager.importSourceMarkdown");
+      case "html":
+      case "htm":
+        return t("dataManager.importSourceHtml");
+      case "pdf":
+        return t("dataManager.importSourcePdf");
+      case "txt":
+        return t("dataManager.importSourceTxt");
+      default:
+        return t("dataManager.importSourceGeneric");
+    }
+  };
+
+  const getImportSourceTone = (source?: string): string => {
+    switch (source?.toLowerCase()) {
+      case "siyuan-sy":
+        return "border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-900/50 dark:bg-violet-500/10 dark:text-violet-300";
+      case "siyuan":
+        return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-500/10 dark:text-emerald-300";
+      case "md":
+      case "markdown":
+        return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-900/50 dark:bg-sky-500/10 dark:text-sky-300";
+      case "html":
+      case "htm":
+        return "border-orange-200 bg-orange-50 text-orange-700 dark:border-orange-900/50 dark:bg-orange-500/10 dark:text-orange-300";
+      case "pdf":
+        return "border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-500/10 dark:text-red-300";
+      case "txt":
+        return "border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300";
+      default:
+        return "border-zinc-200 bg-white text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-400";
+    }
+  };
+
+  const getNotebookPathText = (file: ImportFileInfo): string =>
+    file.notebookPath?.filter(Boolean).join(" / ") || "";
+
   const processFiles = async (files: FileList) => {
     setNotesImportError("");
     setNotesImportNotice(null);
@@ -1041,6 +1086,68 @@ export default function DataManager() {
             {t('dataManager.importDescription')}
           </p>
 
+          {importFiles.length === 0 && (
+            <div className="mb-4">
+              <div className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 mb-2">
+                {t('dataManager.thirdPartyImport')}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
+                  disabled={personalImportLocked}
+                  className="group text-left rounded-xl border border-emerald-200/70 dark:border-emerald-900/40 bg-white dark:bg-zinc-900/40 hover:bg-emerald-50/60 dark:hover:bg-emerald-500/5 disabled:opacity-60 disabled:cursor-not-allowed p-3 transition-colors"
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="w-9 h-9 rounded-lg bg-emerald-100 dark:bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+                      <BookOpen className="w-4 h-4 text-emerald-600 dark:text-emerald-300" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {t('dataManager.siyuanImportTitle')}
+                      </span>
+                      <span className="block mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('dataManager.siyuanImportDesc')}
+                      </span>
+                      <span className="block mt-1 text-[11px] leading-relaxed text-emerald-600 dark:text-emerald-300">
+                        {t('dataManager.siyuanImportExperimental')}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                        <Upload className="w-3.5 h-3.5" />
+                        {t('dataManager.chooseSiyuanExport')}
+                      </span>
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { if (!personalImportLocked) fileInputRef.current?.click(); }}
+                  disabled={personalImportLocked}
+                  className="group text-left rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 disabled:opacity-60 disabled:cursor-not-allowed p-3 transition-colors"
+                >
+                  <div className="flex items-start gap-3 min-w-0">
+                    <span className="w-9 h-9 rounded-lg bg-indigo-100 dark:bg-indigo-500/10 flex items-center justify-center flex-shrink-0">
+                      <FileUp className="w-4 h-4 text-indigo-600 dark:text-indigo-300" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+                        {t('dataManager.genericImportTitle')}
+                      </span>
+                      <span className="block mt-1 text-xs leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        {t('dataManager.genericImportDesc')}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 mt-3 text-xs font-medium text-indigo-600 dark:text-indigo-300">
+                        <Upload className="w-3.5 h-3.5" />
+                        {t('dataManager.chooseFiles')}
+                      </span>
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Dropzone */}
           {importFiles.length === 0 && (
             <div
@@ -1078,6 +1185,9 @@ export default function DataManager() {
               <p className="text-xs text-zinc-400 dark:text-zinc-600 mt-1">
                 {t('dataManager.supportedFiles')}
               </p>
+              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-1">
+                {t('dataManager.siyuanImportSupportedHint')}
+              </p>
             </div>
           )}
 
@@ -1110,12 +1220,19 @@ export default function DataManager() {
               ) : (
                 <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
               )}
-              <div className="flex-1 space-y-1">
-                {notesImportNotice.messages.map((message, index) => (
-                  <p key={`${message}-${index}`} className="leading-relaxed">
-                    {message}
-                  </p>
-                ))}
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold mb-1">
+                  {notesImportNotice.kind === "siyuan"
+                    ? t('dataManager.siyuanImportReportTitle')
+                    : t('dataManager.importNoticeTitle')}
+                </div>
+                <div className="space-y-1">
+                  {notesImportNotice.messages.map((message, index) => (
+                    <p key={`${message}-${index}`} className="leading-relaxed">
+                      {message}
+                    </p>
+                  ))}
+                </div>
               </div>
             </div>
           )}
@@ -1249,30 +1366,50 @@ export default function DataManager() {
               )}
 
               <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg border border-zinc-200 dark:border-zinc-800 p-2">
-                {importFiles.map((file, idx) => (
-                  <label
-                    key={idx}
-                    className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                      file.selected
-                        ? "bg-indigo-50/50 dark:bg-indigo-500/5"
-                        : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={file.selected}
-                      onChange={() => toggleFileSelection(idx)}
-                      className="w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30"
-                    />
-                    <FileText size={14} className="text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
-                    <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
-                      {file.title}
-                    </span>
-                    <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
-                      {(file.size / 1024).toFixed(1)} KB
-                    </span>
-                  </label>
-                ))}
+                {importFiles.map((file, idx) => {
+                  const notebookPathText = getNotebookPathText(file);
+                  return (
+                    <label
+                      key={idx}
+                      className={`flex items-start gap-2.5 px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
+                        file.selected
+                          ? "bg-indigo-50/50 dark:bg-indigo-500/5"
+                          : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={file.selected}
+                        onChange={() => toggleFileSelection(idx)}
+                        className="mt-0.5 w-3.5 h-3.5 rounded border-zinc-300 dark:border-zinc-600 text-indigo-500 focus:ring-indigo-500/30 flex-shrink-0"
+                      />
+                      <FileText size={14} className="mt-0.5 text-zinc-400 dark:text-zinc-500 flex-shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-center gap-2 min-w-0">
+                          <span className="text-sm text-zinc-700 dark:text-zinc-300 truncate flex-1">
+                            {file.title}
+                          </span>
+                          <span className="text-xs text-zinc-400 dark:text-zinc-600 flex-shrink-0">
+                            {(file.size / 1024).toFixed(1)} KB
+                          </span>
+                        </span>
+                        <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] leading-5">
+                          <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 font-medium ${getImportSourceTone(file.source)}`}>
+                            {getImportSourceLabel(file.source)}
+                          </span>
+                          {notebookPathText && (
+                            <span
+                              title={notebookPathText}
+                              className="min-w-0 max-w-full break-all text-zinc-400 dark:text-zinc-500 sm:truncate sm:break-normal"
+                            >
+                              {notebookPathText}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
 
               {/* 导入进度 */}
