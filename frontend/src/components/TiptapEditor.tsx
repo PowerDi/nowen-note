@@ -45,7 +45,7 @@ import {
   Indent, Outdent, AlignLeft, AlignCenter, AlignRight, Trash2,
   FileType, Check, AlertCircle, Info, ArrowUp, Copy, Link as LinkIcon,
   ExternalLink, Unlink2, Workflow, Sigma, BookOpen, Download, Phone,
-  Type, Palette, Eraser, ChevronDown, Search,
+  Type, Palette, Eraser, ChevronDown, Search, Upload,
   // 表格气泡菜单图标
   Rows3, Columns3, Merge, Split, Heading, Network,
 } from "lucide-react";
@@ -916,7 +916,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact }
       disabled={disabled}
       title={title}
       className={cn(
-        compact ? "p-1 rounded-md transition-colors" : "p-1.5 rounded-md transition-colors",
+        compact ? "shrink-0 p-1 rounded-md transition-colors" : "shrink-0 p-1.5 rounded-md transition-colors",
         isActive
           ? "bg-accent-primary/20 text-accent-primary"
           : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
@@ -929,7 +929,7 @@ function ToolbarButton({ onClick, isActive, disabled, children, title, compact }
 }
 
 function ToolbarDivider() {
-  return <div className="w-px h-5 bg-app-border mx-1" />;
+  return <div className="h-5 w-px shrink-0 bg-app-border mx-1" />;
 }
 
 /**
@@ -3540,6 +3540,23 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     editor.chain().focus().setImage({ src }).run();
   }, [editor, t]);
 
+  const handleVideoUrlInsert = useCallback(async () => {
+    if (!editor) return;
+    const url = await promptDialog({
+      title: t("tiptap.insertVideoLink") || t("tiptap.insertVideo") || "Insert video link",
+      placeholder: "https://www.bilibili.com/video/BV... or .mp4",
+      defaultValue: "",
+      confirmText: t("common.confirm"),
+      cancelText: t("common.cancel"),
+      allowEmpty: false,
+    });
+    if (!url) return;
+    const ok = (editor.commands as any).setVideo(url.trim());
+    if (!ok) {
+      toast.error(t("tiptap.videoUrlInvalid") || "Cannot recognize this video URL");
+    }
+  }, [editor, t]);
+
   const handleVideoUpload = useCallback(() => {
     if (!editor) return;
     const currentNote = noteRef.current;
@@ -3895,7 +3912,47 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   if (!editor) return null;
 
   const iconSize = 15;
-
+  const insertTable = (rows: number, cols: number) => {
+    editor.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run();
+  };
+  const insertMermaid = () => {
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "codeBlock",
+        attrs: { language: "mermaid" },
+        content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
+      })
+      .run();
+  };
+  const insertMindMap = () => {
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "codeBlock",
+        attrs: { language: "mermaid" },
+        content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
+      })
+      .run();
+  };
+  const insertMath = () => {
+    editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex: "" } }).run();
+  };
+  const insertFootnote = () => {
+    const id = nextFootnoteIdentifier(editor);
+    editor.chain().focus().insertContent({ type: "footnoteReference", attrs: { identifier: id } }).run();
+    const docEnd = editor.state.doc.content.size;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(docEnd, {
+        type: "footnoteDefinition",
+        attrs: { identifier: id, content: "" },
+      })
+      .run();
+  };
   return (
     <div className="flex flex-col h-full relative">
       {/* Toolbar
@@ -3906,7 +3963,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
             - z 索引压在选区/链接气泡之下（z-50），保留气泡的覆盖能力。 */}
       <div
         className={cn(
-          "sticky top-0 z-20 flex items-center gap-0.5 px-4 py-2 border-b border-app-border bg-app-surface/95 backdrop-blur supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap overflow-x-auto hide-scrollbar touch-pan-x transition-shadow duration-200",
+          "editor-toolbar-scroll-fade hide-scrollbar sticky top-0 z-20 flex flex-nowrap items-center gap-0.5 overflow-x-auto touch-pan-x border-b border-app-border bg-app-surface/95 px-4 py-2 backdrop-blur transition-shadow duration-200 supports-[backdrop-filter]:bg-app-surface/70 md:flex-wrap md:overflow-visible md:touch-auto",
           // 滚动离顶后加底部阴影，表达「工具栏浮于内容之上」
           toolbarShadow && "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_2px_8px_-2px_rgba(0,0,0,0.4)]",
         )}
@@ -3972,10 +4029,6 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         >
           <Strikethrough size={iconSize} />
         </ToolbarButton>
-        {/* 字号 / 颜色：基于 TextStyle + Color + FontSize 三件套，
-            实际渲染为 <span style="font-size:..;color:..">；
-            背景色复用 Highlight multicolor，由 ColorPopover 的「背景」Tab 暴露。
-            原先单独的 Highlighter 切换按钮被 ColorPopover 覆盖，移除以避免重复。 */}
         <FontSizePopover editor={editor} iconSize={iconSize} />
         <LineHeightPopover editor={editor} iconSize={iconSize} />
         <ColorPopover editor={editor} iconSize={iconSize} />
@@ -4027,6 +4080,9 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         >
           <Quote size={iconSize} />
         </ToolbarButton>
+
+        <ToolbarDivider />
+
         <ToolbarButton
           onClick={toggleCodeBlockStrict}
           isActive={editor.isActive("codeBlock")}
@@ -4046,120 +4102,97 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         <ToolbarButton onClick={handleImageUrlInsert} title={t('tiptap.insertImageUrl')}>
           <ExternalLink size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton
-          onClick={async () => {
-            // 弹窗输入视频 URL；setVideo 会做 URL 解析，失败给 toast 提示。
-            // 支持：直链 mp4/webm/ogg + B 站 / YouTube / 腾讯视频 / Vimeo。
-            const url = await promptDialog({
-              title: t('tiptap.insertVideo') || '插入视频',
-              placeholder: 'https://www.bilibili.com/video/BV...  或 .mp4 直链',
-              defaultValue: '',
-              confirmText: t('common.confirm'),
-              cancelText: t('common.cancel'),
-              allowEmpty: false,
-            });
-            if (!url) return;
-            const ok = (editor.commands as any).setVideo(url.trim());
-            if (!ok) {
-              toast.error(t('tiptap.videoUrlInvalid') || '无法识别该视频链接');
-            }
-          }}
-          title={t('tiptap.insertVideo') || '插入视频'}
-        >
+        <ToolbarButton onClick={handleVideoUrlInsert} title={t('tiptap.insertVideoLink')}>
           <Film size={iconSize} />
         </ToolbarButton>
-        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadVideo') || '上传本地视频'}>
-          <Film size={iconSize} />
+        <ToolbarButton onClick={handleVideoUpload} title={t('tiptap.uploadLocalVideo')}>
+          <Upload size={iconSize} />
         </ToolbarButton>
         <ToolbarButton onClick={handleAttachmentUpload} title={t('tiptap.insertAttachment')}>
           <Paperclip size={iconSize} />
         </ToolbarButton>
-        <TableGridPicker
-          iconSize={iconSize}
-          onPick={(rows, cols) =>
-            editor
-              .chain()
-              .focus()
-              .insertTable({ rows, cols, withHeaderRow: true })
-              .run()
-          }
-        />
-        {/* Mermaid 图表：插入空的 mermaid 代码块（lang=mermaid 由 CodeBlockView 渲染图形） */}
-        <ToolbarButton
-          onClick={() => {
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "codeBlock",
-                attrs: { language: "mermaid" },
-                content: [{ type: "text", text: "graph TD\n  A[开始] --> B[结束]" }],
-              })
-              .run();
-          }}
-          title={t('tiptap.insertMermaid')}
-        >
+        <TableGridPicker iconSize={iconSize} onPick={insertTable} />
+        <ToolbarButton onClick={insertMermaid} title={t('tiptap.insertMermaid')}>
           <Workflow size={iconSize} />
         </ToolbarButton>
-        {/* 思维导图：插入 mermaid mindmap 代码块 */}
-        <ToolbarButton
-          onClick={() => {
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "codeBlock",
-                attrs: { language: "mermaid" },
-                content: [{ type: "text", text: "mindmap\n  root((中心主题))\n    主题一\n      子主题一\n      子主题二\n    主题二" }],
-              })
-              .run();
-          }}
-          title={t('tiptap.insertMindMap')}
-        >
+        <ToolbarButton onClick={insertMindMap} title={t('tiptap.insertMindMap')}>
           <Network size={iconSize} />
         </ToolbarButton>
-        {/* LaTeX 数学公式：块级 mathBlock，空 latex 让 NodeView 自动进入编辑态 */}
-        <ToolbarButton
-          onClick={() => {
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "mathBlock",
-                attrs: { latex: "" },
-              })
-              .run();
-          }}
-          title={t('tiptap.insertMath')}
-        >
+        <ToolbarButton onClick={insertMath} title={t('tiptap.insertMath')}>
           <Sigma size={iconSize} />
         </ToolbarButton>
-        {/* 脚注：光标处插 ref + 文档末尾追加配对 def，identifier 自动取下一个未占用数字 */}
-        <ToolbarButton
-          onClick={() => {
-            const id = nextFootnoteIdentifier(editor);
-            editor
-              .chain()
-              .focus()
-              .insertContent({
-                type: "footnoteReference",
-                attrs: { identifier: id },
-              })
-              .run();
-            const docEnd = editor.state.doc.content.size;
-            editor
-              .chain()
-              .focus()
-              .insertContentAt(docEnd, {
-                type: "footnoteDefinition",
-                attrs: { identifier: id, content: "" },
-              })
-              .run();
-          }}
-          title={t('tiptap.insertFootnote')}
-        >
+        <ToolbarButton onClick={insertFootnote} title={t('tiptap.insertFootnote')}>
           <BookOpen size={iconSize} />
         </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          onClick={() => {
+            if (editor.isActive("taskList")) {
+              if (editor.chain().focus().sinkListItem("taskItem").run()) return;
+            } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
+              if (editor.chain().focus().sinkListItem("listItem").run()) {
+                normalizeAdjacentLists(editor);
+                return;
+              }
+            }
+            (editor.chain().focus() as any).changeIndent(1).run();
+          }}
+          title={t('tiptap.indent')}
+        >
+          <Indent size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => {
+            if (editor.isActive("taskList")) {
+              if (editor.chain().focus().liftListItem("taskItem").run()) return;
+            } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
+              if (editor.chain().focus().liftListItem("listItem").run()) {
+                normalizeAdjacentLists(editor);
+                return;
+              }
+            }
+            (editor.chain().focus() as any).changeIndent(-1).run();
+          }}
+          title={t('tiptap.outdent')}
+        >
+          <Outdent size={iconSize} />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton
+          onClick={() => editor.chain().focus().setTextAlign('left').run()}
+          isActive={editor.isActive({ textAlign: 'left' })}
+          title={t('tiptap.alignLeft')}
+        >
+          <AlignLeft size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor.chain().focus().setTextAlign('center').run()}
+          isActive={editor.isActive({ textAlign: 'center' })}
+          title={t('tiptap.alignCenter')}
+        >
+          <AlignCenter size={iconSize} />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={() => editor.chain().focus().setTextAlign('right').run()}
+          isActive={editor.isActive({ textAlign: 'right' })}
+          title={t('tiptap.alignRight')}
+        >
+          <AlignRight size={iconSize} />
+        </ToolbarButton>
+
+        <span className="hidden md:inline-flex">
+          <ToolbarButton
+            onClick={() => setSearchOpen((v) => !v)}
+            isActive={searchOpen}
+            title={t('searchReplace.toolbarTitle') || '查找替换 (Ctrl+F)'}
+          >
+            <Search size={iconSize} />
+          </ToolbarButton>
+        </span>
 
         {/* 表格操作按钮（仅在光标在表格内时显示） */}
         {editor.isActive('table') && (
@@ -4198,85 +4231,13 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           </>
         )}
 
-        <ToolbarDivider />
-
-        {/* 缩进控制 —— 逻辑与 Tab/Shift-Tab 键盘快捷键完全一致 */}
-        <ToolbarButton
-          onClick={() => {
-            if (editor.isActive("taskList")) {
-              if (editor.chain().focus().sinkListItem("taskItem").run()) return;
-            } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
-              if (editor.chain().focus().sinkListItem("listItem").run()) {
-                normalizeAdjacentLists(editor);
-                return;
-              }
-            }
-            (editor.chain().focus() as any).changeIndent(1).run();
-          }}
-          title={t('tiptap.indent')}
-        >
-          <Indent size={iconSize} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => {
-            if (editor.isActive("taskList")) {
-              if (editor.chain().focus().liftListItem("taskItem").run()) return;
-            } else if (editor.isActive("bulletList") || editor.isActive("orderedList")) {
-              if (editor.chain().focus().liftListItem("listItem").run()) {
-                normalizeAdjacentLists(editor);
-                return;
-              }
-            }
-            (editor.chain().focus() as any).changeIndent(-1).run();
-          }}
-          title={t('tiptap.outdent')}
-        >
-          <Outdent size={iconSize} />
-        </ToolbarButton>
-
-        <ToolbarDivider />
-
-        {/* 段落对齐 */}
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('left').run()}
-          isActive={editor.isActive({ textAlign: 'left' })}
-          title={t('tiptap.alignLeft')}
-        >
-          <AlignLeft size={iconSize} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('center').run()}
-          isActive={editor.isActive({ textAlign: 'center' })}
-          title={t('tiptap.alignCenter')}
-        >
-          <AlignCenter size={iconSize} />
-        </ToolbarButton>
-        <ToolbarButton
-          onClick={() => editor.chain().focus().setTextAlign('right').run()}
-          isActive={editor.isActive({ textAlign: 'right' })}
-          title={t('tiptap.alignRight')}
-        >
-          <AlignRight size={iconSize} />
-        </ToolbarButton>
-
-        {!isGuest && <ToolbarDivider />}
-
-        {/* 查找替换：Ctrl/Cmd+F 也可唤起；访客只读下面板会隐藏替换输入框
-            移动端 EditorPane header 已提供独立搜索按钮，这里隐藏避免重复（仅桌面端 md+ 显示） */}
-        <span className="hidden md:inline-flex">
-          <ToolbarButton
-            onClick={() => setSearchOpen((v) => !v)}
-            isActive={searchOpen}
-            title={t('searchReplace.toolbarTitle') || '查找替换 (Ctrl+F)'}
-          >
-            <Search size={iconSize} />
-          </ToolbarButton>
-        </span>
-
         {!isGuest && (
-          <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
-            <Sparkles size={iconSize} className="text-violet-500" />
-          </ToolbarButton>
+          <>
+            <ToolbarDivider />
+            <ToolbarButton onClick={openAIAssistant} title={t('tiptap.aiAssistant')}>
+              <Sparkles size={iconSize} className="text-violet-500" />
+            </ToolbarButton>
+          </>
         )}
       </div>
 

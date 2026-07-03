@@ -2132,9 +2132,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           代价：用户首次发现需要点 2 次才到目标态——属于可接受的学习成本。
           v16 P3 后续 (mobile 双层化)：移动变体的关闭按钮也迁到 NavRail 顶部，
           Header 这里只剩纯标题。 */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-app-border" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
-        <h1 className="text-sm font-semibold text-tx-primary tracking-wide">{siteConfig.title}</h1>
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2 px-4 py-2 border-b border-app-border" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
+        <h1 className="min-w-0 flex-1 truncate pr-1 text-sm font-semibold text-tx-primary tracking-wide">{siteConfig.title}</h1>
+        <div className="flex shrink-0 items-center gap-1">
           {isDesktop && (() => {
             const next = nextRailMode(railMode);
             // 当前态对应的图标（提示"现在是几栏"），点击后切到 next：
@@ -2160,7 +2160,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
       {/* Workspace Switcher + Search（v15：合并垂直 padding，
           原来 pt-2 + py-2 共占 ~16px 间隙，现在压到 ~8px） */}
-      <div className="px-3 pt-1.5 pb-1">
+      <div className="min-w-0 px-3 pt-1.5 pb-1">
         <WorkspaceSwitcher />
       </div>
 

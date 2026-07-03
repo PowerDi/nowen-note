@@ -1175,6 +1175,18 @@ body.density-compact {
   scrollbar-width: none;
 }
 
+.editor-toolbar-scroll-fade {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+
+@media (min-width: 768px) {
+  .editor-toolbar-scroll-fade {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
 /* 闅愯棌婊氬姩鏉′絾淇濈暀婊氬姩鍔熻兘 */
 .no-scrollbar {
   -ms-overflow-style: none;

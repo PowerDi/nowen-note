@@ -2884,15 +2884,15 @@ export default function NoteList() {
   return (
     <div className="w-full h-full bg-app-surface border-r border-app-border flex flex-col transition-colors relative">
       {/* Mobile Header */}
-      <header className="flex items-center justify-between px-4 py-3 border-b border-app-border md:hidden relative z-40" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
+      <header className="flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border md:hidden relative z-40" style={{ paddingTop: 'calc(var(--safe-area-top) + 4px)' }}>
         <button
           onClick={() => actions.setMobileSidebar(true)}
-          className="p-2 -ml-2 rounded-lg text-tx-secondary hover:bg-app-hover active:bg-app-active"
+          className="shrink-0 p-2 -ml-2 rounded-lg text-tx-secondary hover:bg-app-hover active:bg-app-active"
         >
           <Menu size={24} />
         </button>
-        <h2 className="text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
-        <div className="flex items-center gap-1 relative">
+        <h2 className="min-w-0 flex-1 truncate text-center text-sm font-semibold text-tx-primary">{viewTitles[state.viewMode]}</h2>
+        <div className="flex shrink-0 items-center gap-1 relative">
           {/* 移动端排序按钮（搜索/回收站不显示） */}
           {state.viewMode !== "trash" && state.viewMode !== "search" && (
             <button
@@ -2971,12 +2971,12 @@ export default function NoteList() {
       </header>
 
       {/* Desktop Header */}
-      <div className="hidden md:flex items-center justify-between px-4 py-3 border-b border-app-border relative z-40">
-        <div className="flex items-center gap-2">
+      <div className="hidden md:flex items-center justify-between gap-2 px-4 py-3 border-b border-app-border relative z-40">
+        <div className="flex min-w-0 items-center gap-2">
           <FileText size={16} className="text-accent-primary" />
-          <h2 className="text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
+          <h2 className="min-w-0 truncate text-sm font-medium text-tx-primary">{viewTitles[state.viewMode]}</h2>
         </div>
-        <div className="flex items-center gap-1 relative">
+        <div className="flex shrink-0 items-center gap-1 relative">
           {/* 折叠笔记列表面板（桌面专用；点击后中间整列隐藏，编辑器占满）。
               与Rail上的 toggleSidebar 互不干扰，均有独立状态。 */}
           <button
@@ -3080,8 +3080,8 @@ export default function NoteList() {
 
       {/* TAG-FILTER-MULTI-01: 已选标签 chip 区域 */}
       {state.selectedTagIds.length > 0 && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50 overflow-x-auto">
-          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+        <div className="flex min-w-0 items-center gap-1.5 px-3 py-1.5 border-b border-app-border/50 overflow-x-auto">
+          <div className="flex min-w-max items-center gap-1.5">
             {state.selectedTagIds.map((tagId) => {
               const tag = state.tags.find((t) => t.id === tagId);
               if (!tag) return null;
@@ -3143,11 +3143,11 @@ export default function NoteList() {
 
       {/* 多选操作栏 */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between gap-2 px-3 py-2 bg-accent-primary/10 border-y border-accent-primary/20">
-          <span className="text-xs font-medium text-accent-primary truncate">
+        <div className="flex min-w-0 items-center justify-between gap-2 px-3 py-2 bg-accent-primary/10 border-y border-accent-primary/20">
+          <span className="min-w-0 flex-1 truncate text-xs font-medium text-accent-primary">
             {t('noteList.selectedCount', { count: selectedIds.size })}
           </span>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex min-w-0 shrink items-center gap-1 overflow-x-auto">
             {state.viewMode !== "trash" && (
               <>
                 <button

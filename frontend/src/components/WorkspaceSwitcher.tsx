@@ -237,25 +237,25 @@ export default function WorkspaceSwitcher({ onWorkspaceChange, collapsed }: Work
 
   return (
     <>
-      <div ref={ref} className="relative">
+      <div ref={ref} className="relative min-w-0">
         <button
           onClick={() => setOpen((v) => !v)}
           onContextMenu={handleEntryContextMenu}
           className={cn(
-            "w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-border",
+            "w-full min-w-0 flex items-center gap-2 px-3 py-2 rounded-lg border border-border",
             "bg-background hover:bg-accent transition-colors text-sm",
           )}
         >
-          <span className="text-lg">{displayIcon}</span>
+          <span className="shrink-0 text-lg">{displayIcon}</span>
           <div className="flex-1 text-left truncate">
             <div className="font-medium truncate">{displayName}</div>
             {currentWs && (
-              <div className="text-xs text-muted-foreground">
+              <div className="truncate text-xs text-muted-foreground">
                 {currentWs.role} · {currentWs.memberCount} 位成员
               </div>
             )}
           </div>
-          <ChevronDown className={cn("w-4 h-4 transition-transform", open && "rotate-180")} />
+          <ChevronDown className={cn("h-4 w-4 shrink-0 transition-transform", open && "rotate-180")} />
         </button>
 
         <AnimatePresence>
@@ -384,20 +384,20 @@ function WorkspaceItem({
   return (
     <div
       className={cn(
-        "flex items-center gap-2 px-2 py-1.5 mx-1 rounded cursor-pointer group",
+        "flex min-w-0 items-center gap-2 px-2 py-1.5 mx-1 rounded cursor-pointer group",
         active ? "bg-accent" : "hover:bg-accent/60",
       )}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >
-      <span className="text-lg">{icon}</span>
+      <span className="shrink-0 text-lg">{icon}</span>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{name}</div>
         <div className="text-xs text-muted-foreground truncate">{subtitle}</div>
       </div>
       {onManage && (
         <button
-          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background"
+          className="shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-background"
           onClick={(e) => {
             e.stopPropagation();
             onManage();

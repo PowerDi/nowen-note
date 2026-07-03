@@ -17,6 +17,7 @@ import {
   ImportFileInfo, ImportProgress,
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
+import { inspectSiyuanZip, readSiyuanMarkdownZip } from "@/lib/siyuanImportService";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api, withSudo, getCurrentWorkspace, setCurrentWorkspace, getBaseUrl } from "@/lib/api";
 import { toast } from "@/lib/toast";
@@ -324,6 +325,10 @@ export default function DataManager() {
   // 笔记导入阶段的错误提示（例如 PDF 超过 50MB / PDF 无文本层 / 解析失败）。
   // 在 Dropzone 下方以红字展示，重新选文件或点击取消时清空。
   const [notesImportError, setNotesImportError] = useState<string>("");
+  const [notesImportNotice, setNotesImportNotice] = useState<{
+    kind: "siyuan" | "warning";
+    messages: string[];
+  } | null>(null);
   const [selectedNotebookId, setSelectedNotebookId] = useState<string>("");
   // 新增：是否"为每个文件创建以文件名命名的外层笔记本"
   const [perFileNotebook, setPerFileNotebook] = useState(false);
@@ -406,14 +411,49 @@ export default function DataManager() {
 
   const processFiles = async (files: FileList) => {
     setNotesImportError("");
+    setNotesImportNotice(null);
     let result: ImportFileInfo[] = [];
     const fileArray = Array.from(files);
     const zipFile = fileArray.find((f) => f.name.endsWith(".zip"));
 
     try {
       if (zipFile) {
-        const r = await readMarkdownFromZipWithMeta(zipFile);
-        result = r.files;
+        const siyuanInspection = await inspectSiyuanZip(zipFile);
+        if (siyuanInspection.hasSyFiles && !siyuanInspection.hasMarkdownFiles) {
+          setNotesImportError(t("dataManager.siyuanSyNotSupported"));
+          setImportFiles([]);
+          setHasZip(false);
+          setZipMetaHint(null);
+          if (fileInputRef.current) fileInputRef.current.value = "";
+          return;
+        }
+
+        let r: Awaited<ReturnType<typeof readMarkdownFromZipWithMeta>>;
+        if (siyuanInspection.isSiyuanMarkdownZip) {
+          const siyuanResult = await readSiyuanMarkdownZip(zipFile);
+          result = siyuanResult.files;
+          r = { files: result, meta: null };
+          setNotesImportNotice({
+            kind: "siyuan",
+            messages: [
+              t("dataManager.siyuanDetected"),
+              ...siyuanResult.warnings.map((warning) =>
+                warning === "siyuanSyNotSupported"
+                  ? t("dataManager.siyuanSyNotSupported")
+                  : warning,
+              ),
+            ],
+          });
+        } else {
+          r = await readMarkdownFromZipWithMeta(zipFile);
+          result = r.files;
+          if (siyuanInspection.hasSyFiles) {
+            setNotesImportNotice({
+              kind: "warning",
+              messages: [t("dataManager.siyuanSyNotSupported")],
+            });
+          }
+        }
         setHasZip(true);
         // zip 由其内部目录/zip 文件名派生笔记本，关闭 per-file
         setPerFileNotebook(false);
@@ -438,6 +478,7 @@ export default function DataManager() {
         result = await readMarkdownFiles(files);
         setHasZip(false);
         setZipMetaHint(null);
+        setNotesImportNotice(null);
         // 散文件默认开启 per-file：以文件名作为笔记本名，而非统一落到「导入的笔记」
         setPerFileNotebook(true);
       }
@@ -464,6 +505,7 @@ export default function DataManager() {
         );
       }
       setImportFiles([]);
+      setNotesImportNotice(null);
       // 重置文件选择器，以便重选同名文件能触发 onChange
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
@@ -535,6 +577,7 @@ export default function DataManager() {
         setImportFiles([]);
         setImportProgress(null);
         setHasZip(false);
+        setNotesImportNotice(null);
         // 注意：lastImportTarget 不在这里清空——它要持续展示，直到用户主动
         // 关闭横幅或点击"切到该工作区查看"。
       }, 3000);
@@ -561,6 +604,7 @@ export default function DataManager() {
     setImportProgress(null);
     setHasZip(false);
     setNotesImportError("");
+    setNotesImportNotice(null);
   };
 
   const selectedCount = importFiles.filter((f) => f.selected).length;
@@ -982,6 +1026,29 @@ export default function DataManager() {
               >
                 ×
               </button>
+            </div>
+          )}
+
+          {notesImportNotice && (
+            <div
+              className={`mt-3 flex items-start gap-2 px-3 py-2 rounded-lg border text-xs ${
+                notesImportNotice.kind === "siyuan"
+                  ? "border-emerald-200/70 bg-emerald-50/50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-500/5 dark:text-emerald-300"
+                  : "border-amber-200/70 bg-amber-50/50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-500/5 dark:text-amber-300"
+              }`}
+            >
+              {notesImportNotice.kind === "siyuan" ? (
+                <CheckCircle size={14} className="mt-0.5 flex-shrink-0" />
+              ) : (
+                <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+              )}
+              <div className="flex-1 space-y-1">
+                {notesImportNotice.messages.map((message, index) => (
+                  <p key={`${message}-${index}`} className="leading-relaxed">
+                    {message}
+                  </p>
+                ))}
+              </div>
             </div>
           )}
 

@@ -160,6 +160,7 @@ export default function EditorPane() {
   }, [actions, state.editorFullscreen]);
 
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showDesktopMoreMenu, setShowDesktopMoreMenu] = useState(false);
   const [showMobileMoveMenu, setShowMobileMoveMenu] = useState(false);
   const [showMobileOutline, setShowMobileOutline] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -171,6 +172,7 @@ export default function EditorPane() {
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const mobileMenuRef = useRef<HTMLDivElement | null>(null);
+  const desktopMoreMenuRef = useRef<HTMLDivElement | null>(null);
 
   // 纯 HTML 预览模式：当
   // 笔记内容被保存为 HTML 格式（如 clipper 导入）时自动进入只读预览，
@@ -1033,6 +1035,24 @@ export default function EditorPane() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [showMobileMenu]);
+
+  useEffect(() => {
+    if (!showDesktopMoreMenu) return;
+    const onPointerDown = (e: MouseEvent) => {
+      if (desktopMoreMenuRef.current && !desktopMoreMenuRef.current.contains(e.target as Node)) {
+        setShowDesktopMoreMenu(false);
+      }
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setShowDesktopMoreMenu(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [showDesktopMoreMenu]);
 
   const handleUpdate = useCallback(async (data: { content?: string; contentText?: string; title: string; _noteId?: string }) => {
     const currentNote = activeNoteRef.current;
@@ -1933,7 +1953,7 @@ const moveToTrash = useCallback(async () => {
             - Presence ͷ����С�����岻���ƶ��˲���Ⱦ������˱����� */}
       <header className="flex flex-col border-b border-app-border bg-app-surface/50 md:hidden" style={{ paddingTop: 'var(--safe-area-top)' }}>
         {/* �� 1 �У����� + ���м + ͬ�� */}
-        <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+        <div className="flex min-w-0 items-center gap-2 px-3 pt-2 pb-1">
           <button
             onClick={() => actions.setMobileView("list")}
             className="flex items-center text-accent-primary py-1 px-1 -ml-1 rounded-lg active:bg-app-hover shrink-0"
@@ -1949,13 +1969,13 @@ const moveToTrash = useCallback(async () => {
             title={t('editor.moveToNotebook')}
           >
             {currentPath.length > 0 ? (
-              <span className="flex items-center gap-1 min-w-0 overflow-hidden">
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {currentPath.map((nb, idx) => {
                   const isLast = idx === currentPath.length - 1;
                   return (
                     <React.Fragment key={nb.id}>
                       {idx > 0 && <ChevronRight size={10} className="text-tx-tertiary/60 shrink-0" />}
-                      <span className={cn("flex items-center gap-0.5 shrink-0", isLast && "text-tx-secondary font-medium")}>
+                      <span className={cn("flex min-w-0 items-center gap-0.5", isLast ? "text-tx-secondary font-medium" : "shrink-0")}>
                         <span className="leading-none">{nb.icon || "??"}</span>
                         <span className={cn("truncate", isLast ? "max-w-[120px]" : "max-w-[64px]")}>{nb.name}</span>
                       </span>
@@ -1967,7 +1987,9 @@ const moveToTrash = useCallback(async () => {
               <span>��</span>
             )}
           </button>
-          <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
+          <div className="shrink-0">
+            <SyncIndicator syncStatus={syncStatus} lastSyncedAt={lastSyncedAt} onManualSync={handleManualSync} />
+          </div>
         </div>
         {/* �� 2 �У����� + �ղ� + ���� */}
         <div className="flex items-center gap-1 px-3 pb-2 pt-0.5">
@@ -2307,8 +2329,8 @@ const moveToTrash = useCallback(async () => {
       </AnimatePresence>
 
       {/* Desktop Editor Header */}
-      <div className="hidden md:flex items-center justify-between px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
-        <div className="flex items-center gap-1.5 min-w-0">
+      <div className="hidden md:flex min-w-0 items-center justify-between gap-3 px-4 py-2 border-b border-app-border bg-app-surface/30 transition-colors">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
           {/* �ʼ��б����۵�ʱ���������ṩ��չ������ť��δ�۵�ʱ���ء�
               ����������м��࣬�����ڡ���˭���б���ס�ˡ������֪��һ�ۿ����� */}
           {state.noteListCollapsed && (
@@ -2322,14 +2344,14 @@ const moveToTrash = useCallback(async () => {
               <PanelLeft size={15} />
             </button>
           )}
-          <div className="relative">
+          <div className="relative min-w-0 flex-1">
           <button
             onClick={() => setShowMoveDropdown(!showMoveDropdown)}
-            className="flex items-center gap-1 text-xs text-tx-tertiary hover:text-tx-secondary transition-colors rounded-md px-1.5 py-1 hover:bg-app-hover max-w-[520px]"
+            className="flex min-w-0 max-w-full items-center gap-1 overflow-hidden text-xs text-tx-tertiary hover:text-tx-secondary transition-colors rounded-md px-1.5 py-1 hover:bg-app-hover"
             title={t('editor.moveToNotebook')}
           >
             {currentPath.length > 0 ? (
-              <span className="flex items-center gap-1 min-w-0">
+              <span className="flex min-w-0 items-center gap-1 overflow-hidden">
                 {currentPath.map((nb, idx) => {
                   const isLast = idx === currentPath.length - 1;
                   // ĩ�������������ضϣ�min-w-0 + ���� shrink-0�����м�α��ֽ��ղ�����
@@ -2435,27 +2457,30 @@ const moveToTrash = useCallback(async () => {
             </>
           )}
           </div>
-        </div>
-
-        {/* Sync Indicator + Grouped Actions */}
-        <div className="flex items-center gap-2">
-          {/* Phase 2: Presence ͷ���� */}
-          <PresenceBar users={presenceUsers} isConnected={isConnected} />
-
-          {/* Phase 3: CRDT Эͬ״̬С���� */}
           {collabYDoc && (
             <span
-              className={cn(
-                "inline-flex items-center gap-1 px-1.5 h-5 rounded text-[10px] font-medium border",
-                "bg-accent-primary/5 text-accent-primary border-accent-primary/20"
-              )}
-              title="Live Эͬ�༭��CRDT�����ַ���ʵʱ�ϲ����޳�ͻ"
+              className="inline-flex shrink-0 items-center gap-1 rounded border border-accent-primary/20 bg-accent-primary/5 px-1.5 py-0.5 text-[10px] font-medium text-accent-primary"
+              title="Live 协同编辑"
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-accent-primary animate-pulse" />
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-primary animate-pulse" />
               Live
             </span>
           )}
+          {activeNote.contentFormat === "markdown" ? (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono font-medium text-emerald-500" title={t('note.format.markdown')}>
+              <FileCode size={11} />
+              {t('note.format.markdownShort')}
+            </span>
+          ) : (
+            <span className="inline-flex shrink-0 items-center gap-1 rounded border border-app-border bg-app-hover px-1.5 py-0.5 text-[10px] font-mono text-tx-tertiary" title={t('note.format.richText')}>
+              <FileText size={11} />
+              {t('note.format.richTextShort')}
+            </span>
+          )}
+        </div>
 
+        {/* Sync Indicator + Grouped Actions */}
+        <div className="flex shrink-0 items-center gap-1.5">
           {/* ͬ��״̬ */}
           <SyncIndicator
             syncStatus={syncStatus}
@@ -2463,10 +2488,10 @@ const moveToTrash = useCallback(async () => {
             onManualSync={handleManualSync}
           />
 
-          <div className="w-px h-4 bg-app-border" />
+          <div className="h-4 w-px shrink-0 bg-app-border" />
 
           {/* �༭������ */}
-          <div className="flex items-center gap-0.5 bg-app-hover/50 rounded-lg px-1 py-0.5">
+          <div className="flex shrink-0 items-center gap-0.5 bg-app-hover/50 rounded-lg px-1 py-0.5">
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
               onClick={toggleLock}
@@ -2490,19 +2515,52 @@ const moveToTrash = useCallback(async () => {
             >
               <Star size={14} className={cn(activeNote.isFavorite && "text-amber-400 fill-amber-400")} />
             </Button>
+          </div>
+
+          {/* ���� */}
+          <Button
+            variant="ghost" size="icon" className="h-7 w-7 shrink-0"
+            onClick={() => setShowShareModal(true)}
+            title={t('editor.shareNote')}
+          >
+            <Share2 size={14} className="text-emerald-500" />
+          </Button>
+
+          <Button
+            variant="ghost" size="icon" className="relative h-7 w-7 shrink-0"
+            onClick={() => setShowBacklinksPanel(true)}
+            title="反向链接"
+          >
+            <Link2 size={14} className="text-emerald-500" />
+            {!backlinksLoading && backlinksCount !== null && backlinksCount > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[9px] leading-none text-white">
+                {backlinksCount > 99 ? "99+" : backlinksCount}
+              </span>
+            )}
+          </Button>
+
+          <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-violet-500/5 px-1 py-0.5 dark:bg-violet-500/10">
             <Button
               variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={moveToTrash}
-              title={t('editor.trashTooltip')}
-              disabled={effectiveLocked}
+              onClick={handleAITitle}
+              disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
+              title={t('editor.aiGenerateTitle')}
             >
-              <Trash2 size={14} className={cn(effectiveLocked && "opacity-30")} />
+              {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
+            </Button>
+            <Button
+              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
+              onClick={handleAITags}
+              disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
+              title={t('editor.aiSuggestTags')}
+            >
+              {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
             </Button>
           </div>
 
           {/* 全屏 */}
           <Button
-            variant="ghost" size="icon" className="h-7 w-7"
+            variant="ghost" size="icon" className="h-7 w-7 shrink-0"
             onClick={toggleEditorFullscreen}
             title={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
             aria-label={state.editorFullscreen ? '退出全屏' : '编辑器全屏'}
@@ -2510,74 +2568,6 @@ const moveToTrash = useCallback(async () => {
             {state.editorFullscreen
               ? <Minimize2 size={14} className="text-accent-primary" />
               : <Maximize2 size={14} />}
-          </Button>
-
-          {/* ��� */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setShowOutline(!showOutline)}
-            title={showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}
-          >
-            <ListTree size={14} className={cn(showDesktopOutline && "text-accent-primary")} />
-          </Button>
-
-          {/* ���� */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setShowShareModal(true)}
-            title={t('editor.shareNote')}
-          >
-            <Share2 size={14} className="text-emerald-500" />
-          </Button>
-
-
-          {/* NOTE-IMAGE-EXPORT-01: 导出为图片 */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => handleExportNoteImage("png")}
-            title={t('note.exportAsPng')}
-          >
-            <Image size={14} className="text-tx-tertiary" />
-          </Button>
-          {/* �汾��ʷ */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setShowVersionHistory(true)}
-            title={t('editor.versionHistory')}
-          >
-            <History size={14} className="text-violet-500" />
-          </Button>
-
-          {/* ������ע */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setShowCommentPanel(true)}
-            title={t('editor.noteComments')}
-          >
-            <MessageCircle size={14} className="text-blue-500" />
-          </Button>
-
-          {/* 反向链接 BACKLINKS-02 */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7 relative"
-            onClick={() => setShowBacklinksPanel(true)}
-            title="反向链接"
-          >
-            <Link2 size={14} className="text-emerald-500" />
-            {!backlinksLoading && backlinksCount !== null && backlinksCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-emerald-500 text-white text-[9px] px-0.5 leading-none">
-                {backlinksCount > 99 ? "99+" : backlinksCount}
-              </span>
-            )}
-          </Button>
-
-          {/* ����Ŀ¼ */}
-          <Button
-            variant="ghost" size="icon" className="h-7 w-7"
-            onClick={() => setShowAttachmentsPanel(true)}
-            title={t('editor.attachments')}
-          >
-            <Paperclip size={14} className="text-amber-500" />
           </Button>
 
           {/* �༭��ģʽ�л���MD / Tiptap�� */}
@@ -2623,89 +2613,144 @@ const moveToTrash = useCallback(async () => {
             </button>
           )}
 
-          {/* 笔记格式标识 */}
-          {activeNote.contentFormat === "markdown" ? (
-            <span className="flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/30" title={t('note.format.markdown')}>
-              <FileCode size={12} />
-              <span>{t('note.format.markdownShort')}</span>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-mono bg-app-hover text-tx-tertiary border border-app-border" title={t('note.format.richText')}>
-              <FileText size={12} />
-              <span>{t('note.format.richTextShort')}</span>
-            </span>
-          )}
+          <div className="relative shrink-0" ref={desktopMoreMenuRef}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setShowDesktopMoreMenu((open) => !open)}
+              title={t("tiptap.moreMenu") || "更多"}
+              aria-label={t("tiptap.moreMenu") || "更多"}
+            >
+              <MoreHorizontal size={14} />
+            </Button>
+            <AnimatePresence>
+              {showDesktopMoreMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.96, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.96, y: -4 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-full z-50 mt-1 w-72 overflow-hidden rounded-lg border border-app-border bg-app-elevated py-1 shadow-xl"
+                >
+                  <div className="px-3 py-2 border-b border-app-border">
+                    <div className="flex items-center justify-between gap-2 text-[11px] text-tx-tertiary">
+                      <span>{activeNote.contentFormat === "markdown" ? t('note.format.markdown') : t('note.format.richText')}</span>
+                      {noteIsHtml && <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-blue-500">HTML</span>}
+                    </div>
+                    <div className="mt-1">
+                      <PresenceBar users={presenceUsers} isConnected={isConnected} />
+                    </div>
+                  </div>
 
-          {/* HTML Ԥ�� / �༭�л������ڱʼ�ԭʼ��ʽΪ HTML ʱ��ʾ */}
-          {noteIsHtml && (
-            <button
-              onClick={async () => {
-                if (htmlPreviewMode) {
-                  // ��Ԥ���е��༭������ȷ�ϵ���
-                  setShowHtmlEditWarning(true);
-                } else {
-                  // �ӱ༭�л�Ԥ�������� flush �༭�� pending ���ݣ�ȷ�����������ѱ���
-                  try { await editorHandleRef.current?.flushSave(); } catch {}
-                  // ������ activeNote.content���� HtmlPreviewPane չʾ�༭����������ݡ�
-                  // ����û�û���κα༭��content ��Ȼ��ԭʼ HTML����ȫ��¡ģʽ������Ч����
-                  // ����û��༭����content �ѱ�Ϊ MD/HTML Ƭ�Σ�Ԥ���������Ƭ��ģʽ��Ⱦ��
-                  setHtmlPreviewMode(true);
-                }
-              }}
-              title={
-                htmlPreviewMode
-                  ? t("editor.htmlPreview.switchToEditTooltip")
-                  : t("editor.htmlPreview.switchToPreviewTooltip")
-              }
-              className={cn(
-                "flex items-center gap-1 h-7 px-1.5 rounded-md text-[10px] font-medium transition-colors border",
-                htmlPreviewMode
-                  ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/30 hover:bg-blue-500/15"
-                  : "bg-app-hover text-tx-tertiary border-app-border hover:text-tx-secondary hover:bg-app-active"
+                  <button
+                    onClick={() => { setShowMoveDropdown(true); setShowDesktopMoreMenu(false); }}
+                    disabled={isTrashed}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    <FolderInput size={15} className="text-tx-tertiary" />
+                    <span>{t('editor.moveToNotebook')}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowOutline(!showOutline); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <ListTree size={15} className={cn(showDesktopOutline && "text-accent-primary")} />
+                    <span>{showDesktopOutline ? t('editor.hideOutline') : t('editor.showOutline')}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowAttachmentsPanel(true); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <Paperclip size={15} className="text-amber-500" />
+                    <span>{t('editor.attachments')}</span>
+                  </button>
+
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { setShowVersionHistory(true); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <History size={15} className="text-violet-500" />
+                    <span>{t('editor.versionHistory')}</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowCommentPanel(true); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <MessageCircle size={15} className="text-blue-500" />
+                    <span>{t('editor.noteComments')}</span>
+                  </button>
+
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { handleExportNoteImage("png"); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <Image size={15} className="text-tx-tertiary" />
+                    <span>{t("note.exportAsPng")}</span>
+                  </button>
+                  <button
+                    onClick={() => { handleExportNoteImage("jpg"); setShowDesktopMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                  >
+                    <Image size={15} className="text-tx-tertiary" />
+                    <span>{t("note.exportAsJpg")}</span>
+                  </button>
+
+                  {noteIsHtml && (
+                    <>
+                      <div className="h-px bg-app-border mx-2 my-0.5" />
+                      <button
+                        onClick={async () => {
+                          setShowDesktopMoreMenu(false);
+                          if (htmlPreviewMode) {
+                            setShowHtmlEditWarning(true);
+                          } else {
+                            try { await editorHandleRef.current?.flushSave(); } catch {}
+                            setHtmlPreviewMode(true);
+                          }
+                        }}
+                        className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors"
+                      >
+                        {htmlPreviewMode ? <Pencil size={15} className="text-amber-500" /> : <Eye size={15} className="text-blue-500" />}
+                        <span>{htmlPreviewMode ? t("editor.htmlPreview.switchToEdit") : t("editor.htmlPreview.switchToPreview")}</span>
+                      </button>
+                    </>
+                  )}
+
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { handleAISummary(); setShowDesktopMoreMenu(false); }}
+                    disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiSummaryLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Sparkles size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiSummary')}</span>
+                  </button>
+                  <button
+                    onClick={() => { handleAIMermaid("mermaid_mindmap"); setShowDesktopMoreMenu(false); }}
+                    disabled={aiMermaidLoading || !activeNote.contentText || effectiveLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-tx-secondary hover:bg-app-hover transition-colors disabled:opacity-40"
+                  >
+                    {aiMermaidLoading ? <Loader2 size={15} className="animate-spin text-violet-500" /> : <Network size={15} className="text-violet-500" />}
+                    <span>{t('editor.aiGenMindMap') || "AI 思维导图"}</span>
+                  </button>
+
+                  <div className="h-px bg-app-border mx-2 my-0.5" />
+                  <button
+                    onClick={() => { moveToTrash(); setShowDesktopMoreMenu(false); }}
+                    disabled={effectiveLocked}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-40"
+                  >
+                    <Trash2 size={15} />
+                    <span>{t('editor.trashTooltip')}</span>
+                  </button>
+                </motion.div>
               )}
-            >
-              {htmlPreviewMode ? <Eye size={12} /> : <Pencil size={12} />}
-              <span>{htmlPreviewMode ? t("editor.htmlPreview.switchToEdit") : t("editor.htmlPreview.switchToPreview")}</span>
-            </button>
-          )}
-
-          <div className="w-px h-4 bg-app-border" />
-
-          {/* AI 操作区 */}
-          <div className="flex items-center gap-0.5 bg-violet-500/5 dark:bg-violet-500/10 rounded-lg px-1 py-0.5">
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITitle}
-              disabled={aiTitleLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiGenerateTitle')}
-            >
-              {aiTitleLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Type size={14} className="text-violet-500" />}
-            </Button>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAITags}
-              disabled={aiTagsLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiSuggestTags')}
-            >
-              {aiTagsLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <TagIcon size={14} className="text-violet-500" />}
-            </Button>
+            </AnimatePresence>
           </div>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={handleAISummary}
-              disabled={aiSummaryLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiSummary')}
-            >
-              {aiSummaryLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Sparkles size={14} className="text-violet-500" />}
-            </Button>
-            <Button
-              variant="ghost" size="icon" className="h-7 w-7 rounded-md"
-              onClick={() => handleAIMermaid("mermaid_mindmap")}
-              disabled={aiMermaidLoading || !activeNote.contentText || effectiveLocked}
-              title={t('editor.aiGenMindMap') || "AI 思维导图"}
-            >
-              {aiMermaidLoading ? <Loader2 size={14} className="animate-spin text-violet-500" /> : <Network size={14} className="text-violet-500" />}
-            </Button>
+
         </div>
       </div>
 
@@ -3346,7 +3391,7 @@ function SyncIndicator({
       onClick={onManualSync}
       disabled={syncStatus === "saving" || syncStatus === "offline"}
       title={getTooltip()}
-      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] transition-colors hover:bg-app-hover group"
+      className="flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-1 rounded-md text-[11px] transition-colors hover:bg-app-hover group"
     >
       <AnimatePresence mode="wait">
         {syncStatus === "saving" && (
@@ -3407,7 +3452,7 @@ function SyncIndicator({
       </AnimatePresence>
 
       <span className={cn(
-        "hidden sm:inline transition-colors",
+        "hidden whitespace-nowrap sm:inline transition-colors",
         syncStatus === "saving" && "text-accent-primary",
         syncStatus === "saved" && "text-green-500",
         syncStatus === "error" && "text-red-500",
