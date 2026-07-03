@@ -1,6 +1,11 @@
 {
-  "generatedAt": "2026-07-02T08:12:10.321Z",
+  "generatedAt": "2026-07-03T07:28:37.932Z",
   "entries": [
+    {
+      "version": "1.2.5",
+      "date": "2026-07-03",
+      "body": "### ✨ 新增\n\n- 添加笔记本创建笔记功能 (6fe2abd)\n- 添加任务日期 SQL 模块和附件 API 测试 (34b9ccd)\n- add task calendar feed settings (6934d39)\n\n### 🐛 修复\n\n- 修复任务日历订阅带时间事件无法显示 (08b33b6)\n- update Capacitor config (8ffe1a1)\n\n### 📝 文档\n\n- clarify arm64 docker and desktop support status (e59b3ee)\n\n### 📦 构建\n\n- add experimental linux arm64 desktop packaging entry (f86ff27)\n\n### 📌 杂项\n\n- Fix packaged app startup and client connectivity (f9befe7)"
+    },
     {
       "version": "1.2.4",
       "date": "2026-07-02",
@@ -45,11 +50,6 @@
       "version": "1.1.16",
       "date": "2026-06-05",
       "body": "### ✨ 新增\n\n- 全面增强搜索功能和用户体验 (524cf8c)\n- 增强搜索体验和侧边栏布局管理 (14b61c2)\n- 增强附件对象存储功能和搜索高亮显示 (7ce7d53)\n\n### 🐛 修复\n\n- 修复 TypeScript 编译错误 - Buffer 类型兼容性 (ff2f4b5)\n- 全面优化版本恢复功能和编辑器状态管理 (85783d1)\n- 优化侧边栏布局计算和滚动性能 (5e49465)\n\n### 📌 杂项\n\n- 实现对象存储支持和同步中心功能 (d576ec1)"
-    },
-    {
-      "version": "1.1.15",
-      "date": "2026-06-04",
-      "body": "### 📌 杂项\n\n- 优化同步引擎和网络状态检测 (a2e6fbd)\n- 修复macOS Electron侧边栏拖拽区域CSS (07545f2)"
     }
   ]
 }

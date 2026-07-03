@@ -12,6 +12,32 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.2.5 - 2026-07-03
+
+### ✨ 新增
+
+- 添加笔记本创建笔记功能 (6fe2abd)
+- 添加任务日期 SQL 模块和附件 API 测试 (34b9ccd)
+- add task calendar feed settings (6934d39)
+
+### 🐛 修复
+
+- 修复任务日历订阅带时间事件无法显示 (08b33b6)
+- update Capacitor config (8ffe1a1)
+
+### 📝 文档
+
+- clarify arm64 docker and desktop support status (e59b3ee)
+
+### 📦 构建
+
+- add experimental linux arm64 desktop packaging entry (f86ff27)
+
+### 📌 杂项
+
+- Fix packaged app startup and client connectivity (f9befe7)
+
+
 ## v1.2.4 - 2026-07-02
 
 ### ✨ 新增
