@@ -1453,6 +1453,20 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     }
   };
 
+  const openTabIfEnabled = useCallback((note: Note) => {
+    if (!userPrefs.enableNoteTabs) return;
+    actions.openNoteTab({
+      id: note.id,
+      title: note.title,
+      notebookId: note.notebookId,
+      workspaceId: note.workspaceId,
+      contentFormat: note.contentFormat,
+      isLocked: note.isLocked,
+      isTrashed: note.isTrashed,
+      updatedAt: note.updatedAt,
+    });
+  }, [actions, userPrefs.enableNoteTabs]);
+
   const handleSelectSidebarNote = useCallback(async (noteId: string) => {
     try {
       if (state.activeNote?.id !== noteId) {
@@ -1460,6 +1474,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       }
       const note = await api.getNote(noteId);
       actions.setActiveNote(note);
+      openTabIfEnabled(note);
       actions.setSelectedNotebook(note.notebookId);
       actions.setSelectedTag(null);
       actions.setViewMode("notebook");
@@ -1471,7 +1486,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       console.error("Failed to open note:", err);
       toast.error(err?.message || t("noteList.loadFailed") || "打开笔记失败");
     }
-  }, [actions, state.activeNote?.id, t]);
+  }, [actions, openTabIfEnabled, state.activeNote?.id, t]);
 
   const updateCachedNote = useCallback((noteId: string, patch: Partial<NoteListItem>) => {
     setNotesByNotebookId((prev) => {
@@ -1499,6 +1514,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       return changed ? next : prev;
     });
     actions.removeNoteFromList(noteId);
+    actions.removeNoteTab(noteId);
   }, [actions]);
 
   const handleSidebarNoteMenuAction = useCallback(async (actionId: string) => {
@@ -1538,6 +1554,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           const next = targetNote.isLocked === 1 ? 0 : 1;
           await api.updateNote(targetId, { isLocked: next } as any);
           updateCachedNote(targetId, { isLocked: next });
+          actions.updateNoteTab({ id: targetId, isLocked: next });
           if (state.activeNote?.id === targetId) {
             actions.setActiveNote({ ...state.activeNote, isLocked: next });
           }
@@ -1605,6 +1622,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     try {
       const note = await api.createNote({ notebookId, title: t("common.untitledNote") });
       actions.setActiveNote(note);
+      openTabIfEnabled(note);
       actions.setSelectedNotebook(notebookId);
       actions.setSelectedTag(null);
       actions.setViewMode("notebook");
@@ -1623,7 +1641,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       console.error("Failed to create note:", err);
       toast.error(err?.message || t("noteList.createFailed") || "新建笔记失败");
     }
-  }, [actions, isDesktop, t]);
+  }, [actions, isDesktop, openTabIfEnabled, t]);
 
   const handleCreateSidebarMarkdownNote = useCallback(async (notebookId: string) => {
     try {
@@ -1635,6 +1653,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
         contentText: "无标题 Markdown",
       } as any);
       actions.setActiveNote(note);
+      openTabIfEnabled(note);
       actions.setSelectedNotebook(notebookId);
       actions.setSelectedTag(null);
       actions.setViewMode("notebook");
@@ -1653,7 +1672,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       console.error("Failed to create markdown note:", err);
       toast.error(err?.message || "新建 Markdown 笔记失败");
     }
-  }, [actions, isDesktop]);
+  }, [actions, isDesktop, openTabIfEnabled]);
 
   const handleCreateSidebarWordNote = useCallback(async (notebookId: string) => {
     try {
@@ -1705,6 +1724,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       case "new_note": {
         const note = await api.createNote({ notebookId: targetId, title: t('common.untitledNote') });
         actions.setActiveNote(note);
+        openTabIfEnabled(note);
         actions.setSelectedNotebook(targetId);
         actions.setViewMode("notebook");
         const item = noteToListItem(note);
@@ -1723,6 +1743,7 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
           contentText: "无标题 Markdown",
         } as any);
         actions.setActiveNote(note);
+        openTabIfEnabled(note);
         actions.setSelectedNotebook(targetId);
         actions.setViewMode("notebook");
         const item = noteToListItem(note);
