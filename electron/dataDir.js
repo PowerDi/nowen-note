@@ -3,6 +3,13 @@ const path = require("path");
 
 const DATA_DIR_NAME = "nowen-data";
 const DATA_DIR_POINTER_FILE = "nowen-data-location.json";
+const FIRST_RUN_DATA_MARKERS = [
+  "nowen-note.db",
+  "settings.json",
+  ".jwt_secret",
+  ".local_account_secret",
+  "attachments",
+];
 
 function getDefaultDataPath(userDataRoot) {
   return path.join(userDataRoot, DATA_DIR_NAME);
@@ -72,6 +79,22 @@ function getUserDataPathFromRoot(userDataRoot) {
   return readCustomDataDir(userDataRoot) || getDefaultDataPath(userDataRoot);
 }
 
+function hasExistingDefaultData(userDataRoot) {
+  const defaultDataDir = getDefaultDataPath(userDataRoot);
+  if (!fs.existsSync(defaultDataDir)) return false;
+  return FIRST_RUN_DATA_MARKERS.some((name) => fs.existsSync(path.join(defaultDataDir, name)));
+}
+
+function shouldPromptDataDirOnFirstRun(userDataRoot, {
+  mode = "full",
+  liteOnly = false,
+} = {}) {
+  if (liteOnly || mode === "lite") return false;
+  if (readCustomDataDir(userDataRoot)) return false;
+  if (hasExistingDefaultData(userDataRoot)) return false;
+  return true;
+}
+
 function validateMigrationTarget(targetDir, {
   currentDir,
   appPath,
@@ -126,10 +149,13 @@ function verifyCopiedDataDir(sourceDir, targetDir) {
 module.exports = {
   DATA_DIR_NAME,
   DATA_DIR_POINTER_FILE,
+  FIRST_RUN_DATA_MARKERS,
   getDefaultDataPath,
   getDataDirPointerPath,
   getUserDataPathFromRoot,
+  hasExistingDefaultData,
   readCustomDataDir,
+  shouldPromptDataDirOnFirstRun,
   writeCustomDataDir,
   validateMigrationTarget,
   copyDataDir,
