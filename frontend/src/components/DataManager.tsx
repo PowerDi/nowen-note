@@ -18,6 +18,7 @@ import {
   PDF_NO_TEXT_LAYER_FLAG, PDF_TOO_LARGE_FLAG, MAX_PDF_SIZE,
 } from "@/lib/importService";
 import {
+  assertSiyuanZipCanBeReadInBrowser,
   inspectSiyuanZip,
   readSiyuanMarkdownZip,
   readSiyuanSyZip,
@@ -526,6 +527,9 @@ export default function DataManager() {
 
     try {
       if (zipFile) {
+        if (activeImportMethod === "siyuan") {
+          assertSiyuanZipCanBeReadInBrowser(zipFile.size);
+        }
         const siyuanInspection = await inspectSiyuanZip(zipFile);
         let r: Awaited<ReturnType<typeof readMarkdownFromZipWithMeta>>;
         if (siyuanInspection.hasSyFiles && !siyuanInspection.hasMarkdownFiles) {

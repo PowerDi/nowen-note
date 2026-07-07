@@ -4,11 +4,13 @@ import {
   cleanSiyuanMarkdownWithReport,
   cleanSiyuanMarkdown,
   collectMarkdownAssetRefs,
+  assertSiyuanZipCanBeReadInBrowser,
   enhanceSiyuanImageMap,
   inspectSiyuanZip,
   isSiyuanMarkdownZip,
   isSiyuanSyDataZip,
   isSiyuanSyZip,
+  MAX_BROWSER_SIYUAN_ZIP_SIZE,
   normalizeAssetRef,
   readSiyuanMarkdownZip,
   readSiyuanSyZip,
@@ -252,5 +254,36 @@ describe("siyuanImportService", () => {
     expect(result.report.detectedTags).toEqual(["concept"]);
     expect(result.report.unsupportedNodes.NodeAttributeView).toBe(1);
     expect(result.report.unresolvedAssets).toEqual([]);
+  });
+
+  it("does not inline native .sy assets that are not referenced by imported documents", async () => {
+    const root = "workspace/box";
+    const file = await makeZipFile({
+      [`${root}/doc.sy`]: JSON.stringify({
+        Type: "NodeDocument",
+        Properties: { title: "Doc" },
+        Children: [{
+          Type: "NodeImage",
+          Children: [
+            { Type: "NodeLinkText", Children: [{ Type: "NodeText", Data: "used" }] },
+            { Type: "NodeLinkDest", Data: "assets/used.png" },
+          ],
+        }],
+      }),
+      [`${root}/assets/used.png`]: new Uint8Array([1, 2, 3]),
+      [`${root}/assets/unused.png`]: new Uint8Array([4, 5, 6]),
+    });
+
+    const result = await readSiyuanSyZip(file);
+
+    expect(result.report.totalAssets).toBe(2);
+    expect(result.files[0].imageMap?.["assets/used.png"]).toMatch(/^data:image\/png;base64,/);
+    expect(result.files[0].imageMap?.["assets/unused.png"]).toBeUndefined();
+  });
+
+  it("rejects oversized Siyuan zip files before browser-side parsing", () => {
+    expect(() => assertSiyuanZipCanBeReadInBrowser(MAX_BROWSER_SIYUAN_ZIP_SIZE + 1)).toThrow(
+      /too large/i,
+    );
   });
 });

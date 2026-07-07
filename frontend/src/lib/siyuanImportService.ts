@@ -69,8 +69,16 @@ const VIDEO_EXT_RE = /\.(mp4|webm|ogg|ogv|m4v|mov)$/i;
 const AUDIO_EXT_RE = /\.(mp3|wav|ogg|m4a|flac|aac)$/i;
 const EMBEDDABLE_ASSET_RE = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|ogg|ogv|m4v|mov|mp3|wav|m4a|flac|aac)$/i;
 const MAX_INLINE_MEDIA_SIZE = 30 * 1024 * 1024;
+export const MAX_BROWSER_SIYUAN_ZIP_SIZE = 200 * 1024 * 1024;
+export const MAX_SIYUAN_INLINE_ASSET_BYTES = 120 * 1024 * 1024;
 const SIYUAN_MARKER_RE =
   /(^|\n)\s*\{:\s+[^}]*\}\s*(?=\n|$)|\(\([^)]+?\)\)|\[\[[^\]]+?\]\]|!\[[^\]]*]\((?:\.{0,2}\/)?assets\//i;
+
+export function assertSiyuanZipCanBeReadInBrowser(size: number): void {
+  if (size <= MAX_BROWSER_SIYUAN_ZIP_SIZE) return;
+  const limitMb = Math.round(MAX_BROWSER_SIYUAN_ZIP_SIZE / 1024 / 1024);
+  throw new Error(`Siyuan import zip is too large for browser-side import. Please split it below ${limitMb} MB.`);
+}
 
 function normalizeZipPath(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\/+/, "");
@@ -443,7 +451,19 @@ function mergeUnsupported(target: Record<string, number>, source: Record<string,
   }
 }
 
+function getZipEntryUncompressedSize(zipEntry: unknown): number {
+  const size = (zipEntry as any)?._data?.uncompressedSize;
+  return typeof size === "number" && Number.isFinite(size) ? size : 0;
+}
+
+function addImageMapEntry(imageMap: Record<string, string>, path: string, dataUri: string): void {
+  imageMap[path] = dataUri;
+  const fileName = path.split("/").pop();
+  if (fileName && !imageMap[fileName]) imageMap[fileName] = dataUri;
+}
+
 export async function readSiyuanSyZip(file: File): Promise<SiyuanSyImportResult> {
+  assertSiyuanZipCanBeReadInBrowser(file.size);
   const JSZip = (await import("jszip")).default;
   const zip = await JSZip.loadAsync(file);
   const entries = Object.keys(zip.files).map(normalizeZipPath);
@@ -451,6 +471,7 @@ export async function readSiyuanSyZip(file: File): Promise<SiyuanSyImportResult>
   const boxNames = new Map<string, string>();
   const docById = new Map<string, SiyuanDocIndex>();
   const imageMap: Record<string, string> = {};
+  const assetEntries: Array<{ path: string; zipEntry: any; size: number }> = [];
   let totalAssets = 0;
 
   for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
@@ -473,50 +494,30 @@ export async function readSiyuanSyZip(file: File): Promise<SiyuanSyImportResult>
     if (ASSETS_SEGMENT_RE.test(path)) {
       totalAssets++;
       if (EMBEDDABLE_ASSET_RE.test(path)) {
-        try {
-          const isMedia = VIDEO_EXT_RE.test(path) || AUDIO_EXT_RE.test(path);
-          let base64: string;
-          if (isMedia) {
-            const bytes = await zipEntry.async("uint8array");
-            if (bytes.byteLength > MAX_INLINE_MEDIA_SIZE) {
-              warnings.push(`Siyuan media asset is too large and was kept as a link: ${path}`);
-              continue;
-            }
-            base64 = uint8ArrayToBase64(bytes);
-          } else {
-            base64 = await zipEntry.async("base64");
-          }
-          const dataUri = `data:${getAssetMime(path)};base64,${base64}`;
-          imageMap[path] = dataUri;
-          const fileName = path.split("/").pop();
-          if (fileName && !imageMap[fileName]) imageMap[fileName] = dataUri;
-        } catch {
-          warnings.push(`Failed to read Siyuan asset: ${path}`);
-        }
+        assetEntries.push({ path, zipEntry, size: getZipEntryUncompressedSize(zipEntry) });
       }
+      continue;
     }
-  }
 
-  for (const [rawPath, zipEntry] of Object.entries(zip.files)) {
-    const path = normalizeZipPath(rawPath);
-    if (zipEntry.dir || isIgnoredSiyuanDataEntry(path) || !isSyEntry(path)) continue;
-    try {
-      const ast = JSON.parse(await zipEntry.async("text")) as SiyuanNode;
-      const id = getDocIdFromPath(path);
-      const title = getSiyuanDocTitle(ast, id);
-      const docIndex = {
-        id,
-        path,
-        title,
-        updatedAt: getSiyuanUpdatedAt(ast),
-        ast,
-      };
-      docById.set(id, docIndex);
-      if (ast.ID && ast.ID !== id) {
-        docById.set(ast.ID, docIndex);
+    if (isSyEntry(path)) {
+      try {
+        const ast = JSON.parse(await zipEntry.async("text")) as SiyuanNode;
+        const id = getDocIdFromPath(path);
+        const title = getSiyuanDocTitle(ast, id);
+        const docIndex = {
+          id,
+          path,
+          title,
+          updatedAt: getSiyuanUpdatedAt(ast),
+          ast,
+        };
+        docById.set(id, docIndex);
+        if (ast.ID && ast.ID !== id) {
+          docById.set(ast.ID, docIndex);
+        }
+      } catch {
+        warnings.push(`Failed to parse Siyuan document: ${path}`);
       }
-    } catch {
-      warnings.push(`Failed to parse Siyuan document: ${path}`);
     }
   }
 
@@ -527,13 +528,55 @@ export async function readSiyuanSyZip(file: File): Promise<SiyuanSyImportResult>
 
   const indexedDocs = Array.from(new Map(Array.from(docById.values()).map((doc) => [doc.path, doc])).values())
     .sort((a, b) => a.path.localeCompare(b.path));
-  for (const doc of indexedDocs) {
+
+  const convertedDocs = indexedDocs.map((doc) => {
     const converted = siyuanSyToMarkdown(doc.ast);
-    const enhancedImageMap = enhanceSiyuanImageMap(imageMap, doc.path);
     converted.stats.tags.forEach((tag) => detectedTags.add(tag));
     mergeUnsupported(unsupportedNodes, converted.stats.unsupportedNodes);
     warnings.push(...converted.warnings);
+    return { doc, converted };
+  });
 
+  const requiredAssetCandidates = new Set<string>();
+  const addRequiredAsset = (ref: string) => {
+    for (const candidate of normalizeAssetRef(ref)) requiredAssetCandidates.add(candidate);
+  };
+  for (const { converted } of convertedDocs) {
+    converted.stats.images.forEach(addRequiredAsset);
+    converted.stats.attachments.filter(isEmbeddableAssetRef).forEach(addRequiredAsset);
+  }
+
+  const requiredAssetEntries = assetEntries.filter(({ path }) =>
+    normalizeAssetRef(path).some((candidate) => requiredAssetCandidates.has(candidate)),
+  );
+  const referencedAssetBytes = requiredAssetEntries.reduce((sum, entry) => sum + entry.size, 0);
+  if (referencedAssetBytes > MAX_SIYUAN_INLINE_ASSET_BYTES) {
+    const limitMb = Math.round(MAX_SIYUAN_INLINE_ASSET_BYTES / 1024 / 1024);
+    throw new Error(`Siyuan referenced assets are too large for browser-side import. Please split assets below ${limitMb} MB.`);
+  }
+
+  for (const { path, zipEntry } of requiredAssetEntries) {
+    try {
+      const isMedia = VIDEO_EXT_RE.test(path) || AUDIO_EXT_RE.test(path);
+      let base64: string;
+      if (isMedia) {
+        const bytes = await zipEntry.async("uint8array");
+        if (bytes.byteLength > MAX_INLINE_MEDIA_SIZE) {
+          warnings.push(`Siyuan media asset is too large and was kept as a link: ${path}`);
+          continue;
+        }
+        base64 = uint8ArrayToBase64(bytes);
+      } else {
+        base64 = await zipEntry.async("base64");
+      }
+      addImageMapEntry(imageMap, path, `data:${getAssetMime(path)};base64,${base64}`);
+    } catch {
+      warnings.push(`Failed to read Siyuan asset: ${path}`);
+    }
+  }
+
+  for (const { doc, converted } of convertedDocs) {
+    const enhancedImageMap = enhanceSiyuanImageMap(imageMap, doc.path);
     for (const ref of converted.stats.images) {
       if (!imageMapHasAsset(enhancedImageMap, ref)) unresolvedAssets.add(ref);
     }
@@ -571,6 +614,7 @@ export async function readSiyuanSyZip(file: File): Promise<SiyuanSyImportResult>
 }
 
 export async function readSiyuanMarkdownZip(file: File): Promise<SiyuanImportResult> {
+  assertSiyuanZipCanBeReadInBrowser(file.size);
   const inspection = await inspectSiyuanZip(file);
   const warnings: string[] = [];
   if (inspection.hasSyFiles) {
