@@ -5,9 +5,11 @@ const os = require("node:os");
 const path = require("node:path");
 
 const {
+  FIRST_RUN_DATA_MARKERS,
   getDefaultDataPath,
   getDataDirPointerPath,
   getUserDataPathFromRoot,
+  shouldPromptDataDirOnFirstRun,
   writeCustomDataDir,
   validateMigrationTarget,
 } = require("../dataDir");
@@ -46,4 +48,42 @@ test("rejects unsafe migration targets", () => {
   assert.equal(validateMigrationTarget(childDir, { currentDir }).ok, false);
   assert.equal(validateMigrationTarget(rootDir, { currentDir }).ok, false);
   assert.equal(validateMigrationTarget(nonEmptyDir, { currentDir }).ok, false);
+});
+
+test("prompts for data directory on full first run without existing data", () => {
+  const root = tempRoot();
+
+  assert.equal(shouldPromptDataDirOnFirstRun(root, { mode: "full", liteOnly: false }), true);
+});
+
+test("does not prompt when a custom pointer already exists", () => {
+  const root = tempRoot();
+  const custom = path.join(root, "custom data");
+  fs.mkdirSync(custom, { recursive: true });
+  writeCustomDataDir(root, custom);
+
+  assert.equal(shouldPromptDataDirOnFirstRun(root, { mode: "full", liteOnly: false }), false);
+});
+
+test("does not prompt when default data directory contains existing user data", () => {
+  for (const marker of FIRST_RUN_DATA_MARKERS) {
+    const root = tempRoot();
+    const defaultDir = getDefaultDataPath(root);
+    fs.mkdirSync(defaultDir, { recursive: true });
+    const markerPath = path.join(defaultDir, marker);
+    if (marker === "attachments") {
+      fs.mkdirSync(markerPath, { recursive: true });
+    } else {
+      fs.writeFileSync(markerPath, "x", "utf8");
+    }
+
+    assert.equal(shouldPromptDataDirOnFirstRun(root, { mode: "full", liteOnly: false }), false);
+  }
+});
+
+test("does not prompt in lite mode or lite-only builds", () => {
+  const root = tempRoot();
+
+  assert.equal(shouldPromptDataDirOnFirstRun(root, { mode: "lite", liteOnly: false }), false);
+  assert.equal(shouldPromptDataDirOnFirstRun(root, { mode: "full", liteOnly: true }), false);
 });

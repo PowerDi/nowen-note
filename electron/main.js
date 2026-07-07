@@ -32,6 +32,7 @@ const {
   getDefaultDataPath,
   getUserDataPathFromRoot,
   readCustomDataDir,
+  shouldPromptDataDirOnFirstRun,
   writeCustomDataDir,
   validateMigrationTarget,
   copyDataDir,
@@ -1223,6 +1224,78 @@ async function migrateDataDir(targetPath) {
   }
 }
 
+function formatDataDirError(error) {
+  const messages = {
+    INVALID_PATH: "请选择有效的绝对路径。",
+    TARGET_IS_CURRENT: "该目录就是默认数据目录，无需额外选择。",
+    TARGET_INSIDE_CURRENT: "新目录不能放在默认数据目录内部。",
+    TARGET_IS_ROOT: "不能选择磁盘根目录。",
+    TARGET_INSIDE_APP: "不能选择应用安装目录或资源目录。",
+    TARGET_NOT_DIRECTORY: "目标路径不是文件夹。",
+    TARGET_NOT_EMPTY: "目标目录非空，请选择空目录或已有 nowen-note 数据目录。",
+    CREATE_TARGET_FAILED: "创建目标目录失败。",
+    WRITE_POINTER_FAILED: "保存数据目录设置失败。",
+  };
+  return messages[error] || error || "未知错误。";
+}
+
+async function promptDataDirOnFirstRunIfNeeded() {
+  const userDataRoot = getUserDataRoot();
+  if (!shouldPromptDataDirOnFirstRun(userDataRoot, { mode: currentMode, liteOnly: isLiteOnlyBuild() })) {
+    return;
+  }
+
+  const intro = await dialog.showMessageBox({
+    type: "question",
+    buttons: ["选择其它位置…", "使用默认位置"],
+    defaultId: 0,
+    cancelId: 1,
+    title: "选择本地数据存储位置",
+    message: "选择本地数据存储位置",
+    detail: "Nowen Note 会在本机保存数据库、附件和备份。你可以使用默认位置，也可以选择 D 盘等其它目录。",
+  });
+  if (intro.response !== 0) return;
+
+  const defaultDataDir = getDefaultDataPath(userDataRoot);
+  while (true) {
+    const result = await dialog.showOpenDialog({
+      title: "选择 Nowen Note 本地数据目录",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths?.[0]) return;
+
+    const targetPath = result.filePaths[0];
+    const validation = validateMigrationTarget(targetPath, {
+      currentDir: defaultDataDir,
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+    });
+
+    let error = validation.ok ? null : validation.error;
+    if (!error) {
+      try {
+        fs.mkdirSync(validation.resolved, { recursive: true });
+        writeCustomDataDir(userDataRoot, validation.resolved);
+        return;
+      } catch (err) {
+        error = err?.message === "INVALID_PATH" ? "INVALID_PATH" : "WRITE_POINTER_FAILED";
+        console.error("[dataDir] first-run pointer write failed:", err?.message || err);
+      }
+    }
+
+    const retry = await dialog.showMessageBox({
+      type: "warning",
+      buttons: ["重新选择", "使用默认位置"],
+      defaultId: 0,
+      cancelId: 1,
+      title: "无法使用该数据目录",
+      message: "无法使用该数据目录",
+      detail: formatDataDirError(error),
+    });
+    if (retry.response !== 0) return;
+  }
+}
+
 /**
  * 切换到 Lite 模式。会弹出 setup 窗，让用户选远端 URL。
  * @param {Electron.BrowserWindow | null} parentWin 父窗口（可空）
@@ -1581,12 +1654,22 @@ ipcMain.handle("task:notify-permission", () => {
 setupMacOpenFile(() => mainWindow);
 
 app.whenReady().then(async () => {
-  // 先把 settings 路径定下来（依赖 app.getPath("userData")，必须 ready 后调）
+  const liteOnly = isLiteOnlyBuild();
+
+  // 先读一次模式用于判断是否需要首启目录选择；readSettings 不会创建默认数据目录。
+  setSettingsPath(getUserDataPath());
+  let settings = readSettings();
+  currentMode = settings.mode;
+  currentRemoteUrl = settings.remoteUrl;
+  currentHideMenuBar = !!settings.hideMenuBar;
+
+  await promptDataDirOnFirstRunIfNeeded();
+
+  // 目录选择完成后，再把所有依赖数据目录的模块指向最终路径。
   setSettingsPath(getUserDataPath());
   setCredentialsPath(getUserDataPath());
   folderSync.setDataDir(getUserDataPath());
-  const liteOnly = isLiteOnlyBuild();
-  const settings = readSettings();
+  settings = readSettings();
   currentMode = settings.mode;
   currentRemoteUrl = settings.remoteUrl;
   currentHideMenuBar = !!settings.hideMenuBar;
