@@ -703,7 +703,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
     // �������ٷ� content ���� yjs �� debounce ��д����"���߸���ǰ��"�ľ�̬��
     // ������ meta��title��������˫д��ͻ��
     if (collabEnabledRef.current) {
-      onUpdateRef.current({ title, _noteId: noteRef.current.id });
+      if (title !== noteRef.current.title) {
+        onUpdateRef.current({ title, _noteId: noteRef.current.id });
+      }
     } else {
       onUpdateRef.current({ content: md, contentText: plain, title, _noteId: noteRef.current.id });
     }
@@ -823,7 +825,9 @@ export default forwardRef<NoteEditorHandle, MarkdownEditorProps>(function Markdo
       const text = update.state.doc.toString();
       setWordStats(computeStats(text));
       onHeadingsChangeRef.current?.(extractHeadings(update.view));
-      scheduleSave();
+      if (!collabEnabledRef.current) {
+        scheduleSave();
+      }
 
       // MARKDOWN-PREVIEW-MODE-01: 分屏模式下实时更新预览（debounce 200ms）
       if (previewDebounceRef.current) clearTimeout(previewDebounceRef.current);
