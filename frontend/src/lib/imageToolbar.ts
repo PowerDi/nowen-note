@@ -16,6 +16,12 @@ export function buildReplacedImageAttrs(current: ImageNodeAttrs, nextSrc: string
   };
 }
 
+export function isImageReplaceTargetNode(
+  node: { type?: { name?: string }; attrs?: ImageNodeAttrs } | null | undefined,
+): node is { type: { name: "image" }; attrs: ImageNodeAttrs } {
+  return node?.type?.name === "image";
+}
+
 export function getImageCopySource(attrs: ImageNodeAttrs): string {
   return typeof attrs.src === "string" ? attrs.src : "";
 }

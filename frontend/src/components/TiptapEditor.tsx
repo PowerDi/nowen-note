@@ -39,6 +39,7 @@ import {
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
+  isImageReplaceTargetNode,
   type ImageNodeAttrs,
 } from "@/lib/imageToolbar";
 import { isVideoFile, toInlineAttachmentUrl, uploadMediaAttachment, type MediaUploadResult } from "@/lib/mediaUploadService";
@@ -3078,11 +3079,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           if (res.category !== "image") {
             throw new Error("uploaded file is not an image");
           }
+          const targetNode = editor.state.doc.nodeAt(imagePos);
+          if (!isImageReplaceTargetNode(targetNode)) {
+            toast.error(t("tiptap.imageReplaceTargetChanged", { defaultValue: "原图片位置已变化，请重新选择图片后替换" }));
+            return;
+          }
           editor
             .chain()
             .focus()
             .setNodeSelection(imagePos)
-            .updateAttributes("image", buildReplacedImageAttrs(attrs, res.url))
+            .updateAttributes("image", buildReplacedImageAttrs(targetNode.attrs as ImageNodeAttrs, res.url))
             .run();
           toast.success(t("tiptap.imageReplaceSuccess", { defaultValue: "图片已替换" }));
         })

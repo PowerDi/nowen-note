@@ -449,6 +449,7 @@
     "imageReplacing": "Replacing image...",
     "imageReplaceSuccess": "Image replaced",
     "imageReplaceFailed": "Image replacement failed",
+    "imageReplaceTargetChanged": "The original image position changed. Select the image again to replace it.",
     "imageFileInvalid": "Please choose an image file",
     "imageDelete": "Delete image",
     "imageCopyAddress": "Copy image address",

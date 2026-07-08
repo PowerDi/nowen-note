@@ -461,6 +461,7 @@
     "imageReplacing": "正在替换图片...",
     "imageReplaceSuccess": "图片已替换",
     "imageReplaceFailed": "替换图片失败",
+    "imageReplaceTargetChanged": "原图片位置已变化，请重新选择图片后替换",
     "imageFileInvalid": "请选择图片文件",
     "imageDelete": "删除图片",
     "imageCopyAddress": "复制图片地址",

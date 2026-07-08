@@ -3,6 +3,7 @@ import {
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
+  isImageReplaceTargetNode,
 } from "@/lib/imageToolbar";
 
 describe("imageToolbar", () => {
@@ -29,6 +30,12 @@ describe("imageToolbar", () => {
 
   it("copies the persisted image src instead of a resolved absolute url", () => {
     expect(getImageCopySource({ src: "/api/attachments/image-id" })).toBe("/api/attachments/image-id");
+  });
+
+  it("guards replacement against stale non-image targets", () => {
+    expect(isImageReplaceTargetNode({ type: { name: "image" } })).toBe(true);
+    expect(isImageReplaceTargetNode({ type: { name: "paragraph" } })).toBe(false);
+    expect(isImageReplaceTargetNode(null)).toBe(false);
   });
 
   it("uses title or alt as download filename before falling back to timestamp", () => {
