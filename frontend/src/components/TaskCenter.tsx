@@ -42,6 +42,7 @@ import { TaskCalendarFeedSettings } from "./tasks/TaskCalendarFeedSettings";
 import { CalendarExportTargetSettings } from "./tasks/CalendarExportTargetSettings";
 import { MobileProjectTrigger, MobileProjectPicker } from "./tasks/MobileProjectPicker";
 import { taskMatchesSearch } from "./tasks/taskSearch";
+import { parseTaskQuickAdd, type TaskQuickAddParseResult } from "./tasks/taskSmartRecognition";
 
 export function formatLocalDateKey(date = new Date()): string {
   const y = date.getFullYear();
@@ -55,6 +56,18 @@ export function getDefaultTaskPatchForFilter(filter: TaskFilter): Partial<Task> 
     return { dueDate: formatLocalDateKey() };
   }
   return {};
+}
+
+function getQuickAddCreatePatch(parsed: TaskQuickAddParseResult): Partial<Task> {
+  const patch: Partial<Task> & { repeatRuleJson?: unknown } = { ...parsed.taskPatch };
+  if (patch.repeatRule === "custom" && typeof patch.repeatRuleJson === "string") {
+    try {
+      patch.repeatRuleJson = JSON.parse(patch.repeatRuleJson);
+    } catch {
+      delete patch.repeatRuleJson;
+    }
+  }
+  return patch as Partial<Task>;
 }
 
 /* ===== Main Component ===== */
@@ -278,11 +291,15 @@ export default function TaskCenter() {
   const handleCreate = async (orphanIds: string[] = []): Promise<boolean> => {
     if (!newTitle.trim()) return false;
     const titleToCreate = newTitle.trim();
+    const parsed = parseTaskQuickAdd(titleToCreate);
+    const createPatch = getQuickAddCreatePatch(parsed);
+    const taskTitle = parsed.cleanTitle || titleToCreate;
     try {
       const task = await api.createTask({
-        title: titleToCreate,
+        title: taskTitle,
         projectId: selectedProjectId || undefined,
         ...getDefaultTaskPatchForFilter(filter),
+        ...createPatch,
       });
       setTasks((prev) => [task, ...prev]);
       setNewTitle("");
@@ -290,6 +307,13 @@ export default function TaskCenter() {
       if (orphanIds.length) {
         await Promise.all(
           orphanIds.map((id) => api.taskAttachments.bind(id, task.id).catch(() => null))
+        );
+      }
+      if (parsed.reminderOffsets.length) {
+        await Promise.all(
+          parsed.reminderOffsets.map((offset) =>
+            api.createTaskReminder(task.id, offset).catch(() => null)
+          )
         );
       }
       const s = await api.getTaskStats();
@@ -303,12 +327,28 @@ export default function TaskCenter() {
   };
 
   const handleCreateChild = async (title: string, parentId: string): Promise<void> => {
+    const childTitleToCreate = title.trim();
+    const childParsed = parseTaskQuickAdd(childTitleToCreate);
+    const childCreatePatch = getQuickAddCreatePatch(childParsed);
+    const childTaskTitle = childParsed.cleanTitle || childTitleToCreate;
     try {
       // Inherit projectId from parent, or use selectedProjectId
       const parentTask = tasks.find((t) => t.id === parentId);
       const childProjectId = parentTask?.projectId || selectedProjectId || undefined;
-      const task = await api.createTask({ title, parentId, projectId: childProjectId });
+      const task = await api.createTask({
+        title: childTaskTitle,
+        parentId,
+        projectId: childProjectId,
+        ...childCreatePatch,
+      });
       setTasks((prev) => [task, ...prev]);
+      if (childParsed.reminderOffsets.length) {
+        await Promise.all(
+          childParsed.reminderOffsets.map((offset) =>
+            api.createTaskReminder(task.id, offset).catch(() => null)
+          )
+        );
+      }
       const s = await api.getTaskStats();
       setStats(s);
       refreshCounts();
@@ -899,101 +939,101 @@ export default function TaskCenter() {
             onUpdateTaskDateRange={handleUpdateTaskDateRange}
           />
         ) : (
-        <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-5 py-2">
-          {isLoading ? (
-            <div className="flex items-center justify-center h-32 text-tx-tertiary text-sm">
-              {t("common.loading")}
-            </div>
-          ) : displayTasks.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-40 text-tx-tertiary">
-              {searchQuery ? (
-                <TaskEmptyState type="no-search" compact onAction={() => setSearchQuery("")} />
-              ) : (
-                <TaskEmptyState type="no-tasks" onAction={() => inputRef.current?.focus()} />
-              )}
-            </div>
-          ) : (
-            <div className="space-y-1.5">
-              <AnimatePresence mode="popLayout">
-                {isTreeMode ? (
-                  displayFlatOrdered.map((item) => (
-                    <div
-                      key={item.node.id}
-                      className={cn(
-                        "relative",
-                        dragOverId === item.node.id && dragId !== item.node.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
-                      )}
-                      draggable={!selectMode && !sortByDueTime && !isMobile}
-                      onDragStart={(e) => handleDragStart(item.node.id, e)}
-                      onDragOver={(e) => handleDragOver(item.node.id, e)}
-                      onDrop={() => handleDrop(item.node.id)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      {selectMode && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleSelectId(item.node.id); }}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1"
-                        >
-                          {selectedIds.has(item.node.id)
-                            ? <CheckSquare size={16} className="text-accent-primary" />
-                            : <Square size={16} className="text-tx-tertiary" />}
-                        </button>
-                      )}
-                      <TaskTreeRow
-                        task={item.node}
-                        depth={item.depth}
-                        isExpanded={expandedTaskIds.has(item.node.id)}
-                        hasChildren={item.node.children.length > 0}
-                        onToggle={handleToggle}
-                        onSelect={(task) => { if (!selectMode) setSelectedTaskId(task.id); else toggleSelectId(task.id); }}
-                        onDelete={handleDelete}
-                        onToggleExpand={toggleExpand}
-                        onCreateChild={handleCreateChild}
-                        blockedByDependency={isTaskBlockedByDependency(item.node.id, dependencies, tasks)}
-                      />
-                    </div>
-                  ))
+          <div className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-5 py-2">
+            {isLoading ? (
+              <div className="flex items-center justify-center h-32 text-tx-tertiary text-sm">
+                {t("common.loading")}
+              </div>
+            ) : displayTasks.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-40 text-tx-tertiary">
+                {searchQuery ? (
+                  <TaskEmptyState type="no-search" compact onAction={() => setSearchQuery("")} />
                 ) : (
-                  displayTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className={cn(
-                        "relative",
-                        dragOverId === task.id && dragId !== task.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
-                      )}
-                      draggable={!selectMode && !sortByDueTime && !isMobile}
-                      onDragStart={(e) => handleDragStart(task.id, e)}
-                      onDragOver={(e) => handleDragOver(task.id, e)}
-                      onDrop={() => handleDrop(task.id)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      {selectMode && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); toggleSelectId(task.id); }}
-                          className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1"
-                        >
-                          {selectedIds.has(task.id)
-                            ? <CheckSquare size={16} className="text-accent-primary" />
-                            : <Square size={16} className="text-tx-tertiary" />}
-                        </button>
-                      )}
-                      <FlatTaskRow
-                        task={task}
-                        onToggle={handleToggle}
-                        onSelect={(task) => { if (!selectMode) setSelectedTaskId(task.id); else toggleSelectId(task.id); }}
-                        onDelete={handleDelete}
-                        allTasks={tasks}
-                        onCreateChild={handleCreateChild}
-                        onSelectTask={(taskId) => setSelectedTaskId(taskId)}
-                        blockedByDependency={isTaskBlockedByDependency(task.id, dependencies, tasks)}
-                      />
-                    </div>
-                  ))
+                  <TaskEmptyState type="no-tasks" onAction={() => inputRef.current?.focus()} />
                 )}
-              </AnimatePresence>
-            </div>
-          )}
-        </div>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <AnimatePresence mode="popLayout">
+                  {isTreeMode ? (
+                    displayFlatOrdered.map((item) => (
+                      <div
+                        key={item.node.id}
+                        className={cn(
+                          "relative",
+                          dragOverId === item.node.id && dragId !== item.node.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
+                        )}
+                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        onDragStart={(e) => handleDragStart(item.node.id, e)}
+                        onDragOver={(e) => handleDragOver(item.node.id, e)}
+                        onDrop={() => handleDrop(item.node.id)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        {selectMode && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSelectId(item.node.id); }}
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1"
+                          >
+                            {selectedIds.has(item.node.id)
+                              ? <CheckSquare size={16} className="text-accent-primary" />
+                              : <Square size={16} className="text-tx-tertiary" />}
+                          </button>
+                        )}
+                        <TaskTreeRow
+                          task={item.node}
+                          depth={item.depth}
+                          isExpanded={expandedTaskIds.has(item.node.id)}
+                          hasChildren={item.node.children.length > 0}
+                          onToggle={handleToggle}
+                          onSelect={(task) => { if (!selectMode) setSelectedTaskId(task.id); else toggleSelectId(task.id); }}
+                          onDelete={handleDelete}
+                          onToggleExpand={toggleExpand}
+                          onCreateChild={handleCreateChild}
+                          blockedByDependency={isTaskBlockedByDependency(item.node.id, dependencies, tasks)}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    displayTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={cn(
+                          "relative",
+                          dragOverId === task.id && dragId !== task.id && "before:absolute before:inset-x-0 before:top-0 before:h-0.5 before:bg-accent-primary before:rounded-full before:-translate-y-1"
+                        )}
+                        draggable={!selectMode && !sortByDueTime && !isMobile}
+                        onDragStart={(e) => handleDragStart(task.id, e)}
+                        onDragOver={(e) => handleDragOver(task.id, e)}
+                        onDrop={() => handleDrop(task.id)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        {selectMode && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleSelectId(task.id); }}
+                            className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1"
+                          >
+                            {selectedIds.has(task.id)
+                              ? <CheckSquare size={16} className="text-accent-primary" />
+                              : <Square size={16} className="text-tx-tertiary" />}
+                          </button>
+                        )}
+                        <FlatTaskRow
+                          task={task}
+                          onToggle={handleToggle}
+                          onSelect={(task) => { if (!selectMode) setSelectedTaskId(task.id); else toggleSelectId(task.id); }}
+                          onDelete={handleDelete}
+                          allTasks={tasks}
+                          onCreateChild={handleCreateChild}
+                          onSelectTask={(taskId) => setSelectedTaskId(taskId)}
+                          blockedByDependency={isTaskBlockedByDependency(task.id, dependencies, tasks)}
+                        />
+                      </div>
+                    ))
+                  )}
+                </AnimatePresence>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Mobile: batch action bar at bottom */}
@@ -1034,7 +1074,7 @@ export default function TaskCenter() {
               autoFocus />
             <div className="flex items-center gap-2">
               <span className="text-xs text-tx-tertiary">{t("tasks.projectColor")}</span>
-              {["#6366f1","#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6","#ec4899","#6b7280"].map((c) => (
+              {["#6366f1", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280"].map((c) => (
                 <button key={c} onClick={() => setEditProjectColor(c)}
                   className={cn("w-5 h-5 rounded-full border-2 transition-all", editProjectColor === c ? "border-tx-primary scale-110" : "border-transparent")}
                   style={{ backgroundColor: c }} />

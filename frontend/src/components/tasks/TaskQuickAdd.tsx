@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/toast";
+import { parseTaskQuickAdd, type TaskQuickAddRecognizedRange } from "./taskSmartRecognition";
 
 /** 素朴的 URL 检测：用于 onPaste 时判断是否要转 markdown 链接。 */
 function isHttpUrl(s: string): boolean {
@@ -17,6 +18,26 @@ function hostnameOf(url: string): string {
   } catch {
     return url.length > 24 ? url.slice(0, 24) + "…" : url;
   }
+}
+
+function buildRecognizedPreviewParts(value: string, ranges: TaskQuickAddRecognizedRange[]) {
+  const parts: Array<{ text: string; recognized: boolean; key: string }> = [];
+  let cursor = 0;
+  ranges.forEach((range, index) => {
+    const start = Math.max(0, Math.min(value.length, range.start));
+    const end = Math.max(start, Math.min(value.length, range.end));
+    if (start > cursor) {
+      parts.push({ text: value.slice(cursor, start), recognized: false, key: `plain-${index}` });
+    }
+    if (end > start) {
+      parts.push({ text: value.slice(start, end), recognized: true, key: `recognized-${index}` });
+    }
+    cursor = Math.max(cursor, end);
+  });
+  if (cursor < value.length) {
+    parts.push({ text: value.slice(cursor), recognized: false, key: "plain-tail" });
+  }
+  return parts;
 }
 
 /* ===========================================================================
@@ -52,6 +73,12 @@ export function TaskQuickAdd({
   //   1) 在输入框旁渲染缩略图供用户预览/移除；
   //   2) 提交任务后调用 bind 把它们绑回新创建的 task。
   const [orphans, setOrphans] = useState<{ id: string; url: string; filename: string }[]>([]);
+  const quickAddPreview = parseTaskQuickAdd(value);
+  const recognizedRanges = quickAddPreview.recognizedRanges;
+  const hasRecognizedRanges = value.length > 0 && recognizedRanges.length > 0;
+  const recognizedPreviewParts = hasRecognizedRanges
+    ? buildRecognizedPreviewParts(value, recognizedRanges)
+    : [];
 
   // 把附件 markdown 插入到 input 当前光标处；如果焦点不在 input，就追加到末尾。
   const insertAtCaret = (snippet: string) => {
@@ -185,15 +212,36 @@ export function TaskQuickAdd({
     >
       <div className="flex items-center gap-3">
         <Plus size={16} className="text-tx-tertiary flex-shrink-0" />
-        <input
-          ref={inputRef}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleSubmit(); } }}
-          onPaste={handlePaste}
-          placeholder={t('tasks.addTaskPlaceholder')}
-          className="flex-1 min-w-0 bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none"
-        />
+        <div className="relative flex-1 min-w-0">
+          {hasRecognizedRanges && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 flex items-center overflow-hidden whitespace-pre text-sm text-tx-primary"
+            >
+              {recognizedPreviewParts.map((part) => (
+                <span
+                  key={part.key}
+                  data-recognized-token={part.recognized ? "true" : undefined}
+                  className={part.recognized ? "text-accent-primary font-medium" : undefined}
+                >
+                  {part.text}
+                </span>
+              ))}
+            </div>
+          )}
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void handleSubmit(); } }}
+            onPaste={handlePaste}
+            placeholder={t('tasks.addTaskPlaceholder')}
+            className={cn(
+              "relative z-10 w-full bg-transparent text-sm text-tx-primary placeholder:text-tx-tertiary focus:outline-none",
+              hasRecognizedRanges && "text-transparent caret-tx-primary",
+            )}
+          />
+        </div>
         <button
           type="button"
           onClick={() => fileRef.current?.click()}

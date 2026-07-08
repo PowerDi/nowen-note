@@ -6,6 +6,19 @@ export interface ImageNodeAttrs {
   height?: number | string | null;
 }
 
+export interface ImageToolbarRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+  width: number;
+}
+
+export interface ImageToolbarViewport {
+  width: number;
+  height: number;
+}
+
 export function buildReplacedImageAttrs(current: ImageNodeAttrs, nextSrc: string): ImageNodeAttrs {
   return {
     src: nextSrc,
@@ -22,8 +35,14 @@ export function isImageReplaceTargetNode(
   return node?.type?.name === "image";
 }
 
-export function getImageCopySource(attrs: ImageNodeAttrs): string {
-  return typeof attrs.src === "string" ? attrs.src : "";
+export function getImageCopySource(attrs: ImageNodeAttrs, origin?: string): string {
+  const src = typeof attrs.src === "string" ? attrs.src.trim() : "";
+  if (!src) return "";
+  if (/^(?:https?:|data:|blob:)/i.test(src)) return src;
+  if (!origin) return src;
+  const base = origin.replace(/\/+$/, "");
+  const path = src.startsWith("/") ? src : `/${src}`;
+  return `${base}${path}`;
 }
 
 export function getImageDownloadFilename(attrs: ImageNodeAttrs): string {
@@ -32,4 +51,25 @@ export function getImageDownloadFilename(attrs: ImageNodeAttrs): string {
   const alt = typeof attrs.alt === "string" ? attrs.alt.trim() : "";
   if (alt) return alt;
   return `nowen-image-${Date.now()}`;
+}
+
+export function getImageToolbarPosition(
+  rect: ImageToolbarRect,
+  viewport: ImageToolbarViewport,
+  options?: { toolbarWidth?: number; toolbarHeight?: number; gap?: number; margin?: number },
+): { top: number; left: number } {
+  const toolbarWidth = options?.toolbarWidth ?? 280;
+  const toolbarHeight = options?.toolbarHeight ?? 40;
+  const gap = options?.gap ?? 8;
+  const margin = options?.margin ?? 8;
+
+  const above = rect.top - toolbarHeight - gap;
+  const below = rect.bottom + gap;
+  const top = above >= margin
+    ? above
+    : Math.min(Math.max(margin, below), viewport.height - toolbarHeight - margin);
+
+  const cx = rect.left + rect.width / 2;
+  const left = Math.max(margin, Math.min(cx - toolbarWidth / 2, viewport.width - toolbarWidth - margin));
+  return { top, left };
 }

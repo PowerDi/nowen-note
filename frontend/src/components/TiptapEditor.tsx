@@ -41,6 +41,7 @@ import {
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
+  getImageToolbarPosition,
   isImageReplaceTargetNode,
   type ImageNodeAttrs,
 } from "@/lib/imageToolbar";
@@ -3050,7 +3051,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   const handleCopySelectedImageSrc = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
-    const src = getImageCopySource(attrs ?? {});
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const src = getImageCopySource(attrs ?? {}, origin);
     if (!src) return;
     const ok = await copyText(src);
     if (ok) {
@@ -3320,6 +3322,16 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       return { top, left };
     };
 
+    const getImageSelectionRect = (pos: number) => {
+      const node = editor.view.nodeDOM(pos);
+      const el = node instanceof Element ? node : node?.parentElement ?? null;
+      const wrapper = el?.classList.contains("resizable-image-wrapper")
+        ? el
+        : el?.closest?.(".resizable-image-wrapper");
+      const target = wrapper ?? el?.querySelector?.("img") ?? el;
+      return target instanceof Element ? target.getBoundingClientRect() : null;
+    };
+
     const updateBubble = () => {
       const { state, view } = editor;
       const { selection } = state;
@@ -3439,8 +3451,11 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       if (isImage) {
         // 图片选区 → 显示图片尺寸气泡
         setBubble(b => b.open ? { ...b, open: false } : b);
-        const rect = posToDOMRect(view, from, to);
-        const { top, left } = placeBubble(rect, 40, 280);
+        const rect = getImageSelectionRect(from) ?? posToDOMRect(view, from, to);
+        const { top, left } = getImageToolbarPosition(rect, {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        });
         setImageBubble({ open: true, top, left });
       } else {
         // 文本选区 → 显示格式化气泡
