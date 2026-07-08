@@ -173,6 +173,88 @@ export function isAndroidInvalidServerUrl(url: string): boolean {
   }
 }
 
+export function shouldTryNativeHttpFallback(error: unknown, method = "GET"): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod !== "GET" && normalizedMethod !== "HEAD") return false;
+
+  const err = error as { name?: unknown; message?: unknown };
+  const name = typeof err?.name === "string" ? err.name : "";
+  const message = typeof err?.message === "string" ? err.message : String(error || "");
+  return (
+    name === "TypeError" ||
+    name === "NetworkError" ||
+    name === "AbortError" ||
+    /failed to fetch|network\s*error|load failed|timeout|cors|aborted/i.test(message)
+  );
+}
+
+function headersInitToRecord(headers?: HeadersInit): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!headers) return out;
+
+  if (typeof Headers !== "undefined" && headers instanceof Headers) {
+    headers.forEach((value, key) => {
+      out[key] = value;
+    });
+    return out;
+  }
+
+  if (Array.isArray(headers)) {
+    for (const [key, value] of headers) {
+      if (value !== undefined && value !== null) out[key] = String(value);
+    }
+    return out;
+  }
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (value !== undefined && value !== null) out[key] = String(value);
+  }
+  return out;
+}
+
+function bodyToNativeData(body: BodyInit | null | undefined): unknown {
+  if (body === undefined || body === null) return undefined;
+  if (typeof body !== "string") return body;
+  if (!body) return body;
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+function nativeDataToResponseBody(data: unknown): string {
+  if (data === undefined || data === null) return "";
+  return typeof data === "string" ? data : JSON.stringify(data);
+}
+
+async function nativeHttpFetch(fullUrl: string, init: RequestInit): Promise<Response> {
+  const { CapacitorHttp } = await import("@capacitor/core");
+  const method = (init.method || "GET").toUpperCase();
+  const headers = headersInitToRecord(init.headers);
+  const nativeRes = await CapacitorHttp.request({
+    url: fullUrl,
+    method,
+    headers,
+    data: bodyToNativeData(init.body),
+    responseType: "json",
+  });
+
+  const responseHeaders = new Headers(headersInitToRecord(nativeRes.headers as HeadersInit | undefined));
+  const body = nativeDataToResponseBody(nativeRes.data);
+  if (body && !responseHeaders.has("content-type")) {
+    responseHeaders.set("content-type", "application/json");
+  }
+  if (nativeRes.status < 200 || nativeRes.status > 599) {
+    throw new Error(`Native HTTP returned invalid status: ${nativeRes.status}`);
+  }
+  return new Response(body, {
+    status: nativeRes.status,
+    statusText: String(nativeRes.status),
+    headers: responseHeaders,
+  });
+}
+
 // ============================================================================
 // SSE 流解析工具（专为 AI 流式接口设计）
 // ----------------------------------------------------------------------------
@@ -584,6 +666,34 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
       ...(includeConnId && connId ? { "X-Connection-Id": connId } : {}),
       ...restOptions?.headers,
     });
+    const tryNativeFallback = async (error: unknown, includeConnId: boolean): Promise<Response | null> => {
+      if (!isNativeCapacitor()) return null;
+      if (!shouldTryNativeHttpFallback(error, method)) return null;
+      try {
+        const nativeRes = await nativeHttpFetch(fullUrl, {
+          ...restOptions,
+          headers: buildHeaders(includeConnId),
+        });
+        // eslint-disable-next-line no-console
+        console.warn("[api] fetch failed; using CapacitorHttp fallback for Android native request.", {
+          method,
+          url,
+          errorName: (error as any)?.name,
+          errorMessage: (error as any)?.message,
+        });
+        return nativeRes;
+      } catch (nativeErr) {
+        // eslint-disable-next-line no-console
+        console.warn("[api] CapacitorHttp fallback failed.", {
+          method,
+          url,
+          fetchErrorName: (error as any)?.name,
+          nativeErrorName: (nativeErr as any)?.name,
+          nativeErrorMessage: (nativeErr as any)?.message,
+        });
+        return null;
+      }
+    };
     try {
       res = await fetch(fullUrl, { ...restOptions, signal: linkedController.signal, headers: buildHeaders(true) });
     } catch (firstErr: any) {
@@ -606,27 +716,37 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
         } catch (retryErr: any) {
           // 用户主动 abort（非超时） → 原样抛
           if (retryErr?.name === "AbortError" && userSignal?.aborted) throw retryErr;
-          // 超时（linkedController.abort 触发） → 当作网络错误入队
-          const isTimeout = retryErr?.name === "AbortError";
-          if (!_skipOfflineQueue && (isTimeout || _shouldEnqueue(url, method, retryErr))) {
-            if (_shouldEnqueue(url, method, isTimeout ? new TypeError("timeout") : retryErr)) {
-              return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+          const nativeRes = await tryNativeFallback(retryErr, false);
+          if (nativeRes) {
+            res = nativeRes;
+          } else {
+            // 超时（linkedController.abort 触发） → 当作网络错误入队
+            const isTimeout = retryErr?.name === "AbortError";
+            if (!_skipOfflineQueue && (isTimeout || _shouldEnqueue(url, method, retryErr))) {
+              if (_shouldEnqueue(url, method, isTimeout ? new TypeError("timeout") : retryErr)) {
+                return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+              }
             }
+            throw retryErr;
           }
-          throw retryErr;
         }
       } else {
         // 用户主动 abort → 原样抛
         if (firstErr?.name === "AbortError" && userSignal?.aborted) throw firstErr;
-        // 超时 → 视为网络错误
-        const isTimeout = firstErr?.name === "AbortError";
-        if (!_skipOfflineQueue) {
-          const enqueueErr = isTimeout ? new TypeError("timeout") : firstErr;
-          if (_shouldEnqueue(url, method, enqueueErr)) {
-            return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+        const nativeRes = await tryNativeFallback(firstErr, true);
+        if (nativeRes) {
+          res = nativeRes;
+        } else {
+          // 超时 → 视为网络错误
+          const isTimeout = firstErr?.name === "AbortError";
+          if (!_skipOfflineQueue) {
+            const enqueueErr = isTimeout ? new TypeError("timeout") : firstErr;
+            if (_shouldEnqueue(url, method, enqueueErr)) {
+              return handleOfflineEnqueue<T>(url, method, restOptions?.body as string | undefined);
+            }
           }
+          throw firstErr;
         }
-        throw firstErr;
       }
     }
   } catch (fetchErr: any) {
