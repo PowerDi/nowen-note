@@ -35,8 +35,14 @@ export function isImageReplaceTargetNode(
   return node?.type?.name === "image";
 }
 
-export function getImageCopySource(attrs: ImageNodeAttrs): string {
-  return typeof attrs.src === "string" ? attrs.src : "";
+export function getImageCopySource(attrs: ImageNodeAttrs, origin?: string): string {
+  const src = typeof attrs.src === "string" ? attrs.src.trim() : "";
+  if (!src) return "";
+  if (/^(?:https?:|data:|blob:)/i.test(src)) return src;
+  if (!origin) return src;
+  const base = origin.replace(/\/+$/, "");
+  const path = src.startsWith("/") ? src : `/${src}`;
+  return `${base}${path}`;
 }
 
 export function getImageDownloadFilename(attrs: ImageNodeAttrs): string {

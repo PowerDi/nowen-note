@@ -29,8 +29,22 @@ describe("imageToolbar", () => {
     });
   });
 
-  it("copies the persisted image src instead of a resolved absolute url", () => {
-    expect(getImageCopySource({ src: "/api/attachments/image-id" })).toBe("/api/attachments/image-id");
+  it("copies image src with the current origin for relative attachment paths", () => {
+    expect(getImageCopySource({ src: "/api/attachments/image-id" }, "https://note.example.com")).toBe(
+      "https://note.example.com/api/attachments/image-id",
+    );
+    expect(getImageCopySource({ src: "api/attachments/image-id" }, "https://note.example.com/")).toBe(
+      "https://note.example.com/api/attachments/image-id",
+    );
+  });
+
+  it("keeps already absolute image src unchanged when copying", () => {
+    expect(getImageCopySource({ src: "https://cdn.example.com/a.png" }, "https://note.example.com")).toBe(
+      "https://cdn.example.com/a.png",
+    );
+    expect(getImageCopySource({ src: "data:image/png;base64,abc" }, "https://note.example.com")).toBe(
+      "data:image/png;base64,abc",
+    );
   });
 
   it("guards replacement against stale non-image targets", () => {

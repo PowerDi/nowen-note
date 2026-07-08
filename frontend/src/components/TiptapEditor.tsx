@@ -3051,7 +3051,8 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
   const handleCopySelectedImageSrc = useCallback(async () => {
     const attrs = getSelectedImageAttrs();
-    const src = getImageCopySource(attrs ?? {});
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
+    const src = getImageCopySource(attrs ?? {}, origin);
     if (!src) return;
     const ok = await copyText(src);
     if (ok) {
