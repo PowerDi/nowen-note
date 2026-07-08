@@ -3,6 +3,7 @@ import {
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
+  getImageToolbarPosition,
   isImageReplaceTargetNode,
 } from "@/lib/imageToolbar";
 
@@ -45,5 +46,23 @@ describe("imageToolbar", () => {
     vi.setSystemTime(new Date("2026-07-08T00:00:00Z"));
     expect(getImageDownloadFilename({})).toBe("nowen-image-1783468800000");
     vi.useRealTimers();
+  });
+
+  it("places the image toolbar above the image when there is enough room", () => {
+    expect(
+      getImageToolbarPosition(
+        { top: 240, bottom: 640, left: 100, right: 900, width: 800 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ top: 192, left: 360 });
+  });
+
+  it("places the image toolbar below the image when the image is near the top", () => {
+    expect(
+      getImageToolbarPosition(
+        { top: 24, bottom: 424, left: 100, right: 900, width: 800 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ top: 432, left: 360 });
   });
 });
