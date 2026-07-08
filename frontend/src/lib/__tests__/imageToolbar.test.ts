@@ -3,6 +3,7 @@ import {
   buildReplacedImageAttrs,
   getImageCopySource,
   getImageDownloadFilename,
+  getImageToolbarPosition,
   isImageReplaceTargetNode,
 } from "@/lib/imageToolbar";
 
@@ -28,8 +29,22 @@ describe("imageToolbar", () => {
     });
   });
 
-  it("copies the persisted image src instead of a resolved absolute url", () => {
-    expect(getImageCopySource({ src: "/api/attachments/image-id" })).toBe("/api/attachments/image-id");
+  it("copies image src with the current origin for relative attachment paths", () => {
+    expect(getImageCopySource({ src: "/api/attachments/image-id" }, "https://note.example.com")).toBe(
+      "https://note.example.com/api/attachments/image-id",
+    );
+    expect(getImageCopySource({ src: "api/attachments/image-id" }, "https://note.example.com/")).toBe(
+      "https://note.example.com/api/attachments/image-id",
+    );
+  });
+
+  it("keeps already absolute image src unchanged when copying", () => {
+    expect(getImageCopySource({ src: "https://cdn.example.com/a.png" }, "https://note.example.com")).toBe(
+      "https://cdn.example.com/a.png",
+    );
+    expect(getImageCopySource({ src: "data:image/png;base64,abc" }, "https://note.example.com")).toBe(
+      "data:image/png;base64,abc",
+    );
   });
 
   it("guards replacement against stale non-image targets", () => {
@@ -45,5 +60,23 @@ describe("imageToolbar", () => {
     vi.setSystemTime(new Date("2026-07-08T00:00:00Z"));
     expect(getImageDownloadFilename({})).toBe("nowen-image-1783468800000");
     vi.useRealTimers();
+  });
+
+  it("places the image toolbar above the image when there is enough room", () => {
+    expect(
+      getImageToolbarPosition(
+        { top: 240, bottom: 640, left: 100, right: 900, width: 800 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ top: 192, left: 360 });
+  });
+
+  it("places the image toolbar below the image when the image is near the top", () => {
+    expect(
+      getImageToolbarPosition(
+        { top: 24, bottom: 424, left: 100, right: 900, width: 800 },
+        { width: 1200, height: 800 },
+      ),
+    ).toEqual({ top: 432, left: 360 });
   });
 });
