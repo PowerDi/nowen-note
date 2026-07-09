@@ -3,6 +3,7 @@ import {
   addNoteToNotebookCache,
   directNotebookNotes,
   moveNoteInNotebookCache,
+  sortNotebookNotes,
   upsertNoteInNotebookCache,
 } from "@/lib/notebookNoteCache";
 import type { NoteListItem } from "@/types";
@@ -74,5 +75,17 @@ describe("notebook note cache", () => {
 
     expect(next.get("target")?.map((n) => n.id)).toEqual(["n1", "n2", "n3"]);
     expect(next.get("target")?.[1].title).toBe("updated");
+  });
+
+  it("sorts cached notebook notes by title immediately for name sorting", () => {
+    const notes = [
+      { ...note("bb", "target"), title: "bb无标题笔记" },
+      { ...note("aweb", "target"), title: "aWeb Auth" },
+      { ...note("cert", "target"), title: "Certificates in IOS-XE WLCs" },
+    ];
+
+    const sorted = sortNotebookNotes(notes, { by: "name", dir: "asc" });
+
+    expect(sorted.map((n) => n.id)).toEqual(["aweb", "bb", "cert"]);
   });
 });

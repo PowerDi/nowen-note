@@ -44,6 +44,7 @@ import {
   addNoteToNotebookCache,
   directNotebookNotes,
   moveNoteInNotebookCache,
+  sortNotebookNotes,
   upsertNoteInNotebookCache,
 } from "@/lib/notebookNoteCache";
 import {
@@ -55,26 +56,51 @@ import {
 import {
   buildNotebookTree,
   DEFAULT_NOTEBOOK_SORT_PREF,
+  getNotebookDropZone,
   getNotebookDragHint,
   normalizeNotebookSortPref,
+  reorderNotebooksForDrop,
+  type NotebookDropZone,
   type NotebookSortBy,
   type NotebookSortPref,
 } from "@/lib/notebookSort";
 import { SIDEBAR_TREE_INDENT, sidebarTreeContentMinWidth, sidebarTreeRowMinWidth } from "@/lib/sidebarLayout";
 
 const NOTEBOOK_SORT_STORAGE_KEY = "nowen.notebookTree.sort";
+const ROOT_NOTEBOOK_SORT_KEY = "__root__";
+type NotebookSortPrefMap = Record<string, NotebookSortPref>;
 
-function loadNotebookSortPref(): NotebookSortPref {
+function notebookSortKey(parentId: string | null): string {
+  return parentId ?? ROOT_NOTEBOOK_SORT_KEY;
+}
+
+function loadNotebookSortPrefs(): NotebookSortPrefMap {
   try {
     const raw = localStorage.getItem(NOTEBOOK_SORT_STORAGE_KEY);
-    return raw ? normalizeNotebookSortPref(JSON.parse(raw)) : DEFAULT_NOTEBOOK_SORT_PREF;
+    if (!raw) return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
+    const parsed = JSON.parse(raw);
+    if (parsed?.by) {
+      return { [ROOT_NOTEBOOK_SORT_KEY]: normalizeNotebookSortPref(parsed) };
+    }
+    if (!parsed || typeof parsed !== "object") {
+      return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
+    }
+    const result: NotebookSortPrefMap = {};
+    Object.entries(parsed).forEach(([key, value]) => {
+      result[key] = normalizeNotebookSortPref(value);
+    });
+    return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF, ...result };
   } catch {
-    return DEFAULT_NOTEBOOK_SORT_PREF;
+    return { [ROOT_NOTEBOOK_SORT_KEY]: DEFAULT_NOTEBOOK_SORT_PREF };
   }
 }
 
-function saveNotebookSortPref(pref: NotebookSortPref) {
-  try { localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, JSON.stringify(pref)); } catch {}
+function saveNotebookSortPrefs(prefMap: NotebookSortPrefMap) {
+  try { localStorage.setItem(NOTEBOOK_SORT_STORAGE_KEY, JSON.stringify(prefMap)); } catch {}
+}
+
+function getNotebookSortPrefForParent(prefMap: NotebookSortPrefMap, parentId: string | null): NotebookSortPref {
+  return prefMap[notebookSortKey(parentId)] ?? DEFAULT_NOTEBOOK_SORT_PREF;
 }
 
 /* ===== Emoji 图标选择器 ===== */
@@ -461,7 +487,7 @@ function NotebookSortMenu({
   return (
     <div
       role="menu"
-      className="absolute right-0 top-7 z-50 w-44 rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
+      className="absolute right-0 top-7 z-[120] w-44 rounded-lg border border-app-border bg-app-elevated shadow-xl py-1"
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="px-3 py-1 text-[10px] uppercase tracking-wide text-tx-tertiary select-none">
@@ -611,6 +637,8 @@ function NotebookItem({
   onIconChange,
   draggable, onDragStart, onDragOver, onDragEnd, onDrop, dragOverId, dragOverZone,
   dragHint,
+  canDragInParent,
+  getSortValue, sortMenuOpenId, onSortMenuToggle, onSortChange, onSortClose,
   noteDragOverId, noteItemDragOverId, noteItemDragOverZone,
   showNotes, notesByNotebookId, loadingNotebookIds, activeNoteId, onSelectNote, onNoteContextMenu,
   onNoteDragStart, onNoteDragOver, onNoteDragEnd, onNoteDrop, onNoteItemDragOver, onNoteItemDrop,
@@ -632,12 +660,18 @@ function NotebookItem({
   onIconChange: (id: string, emoji: string) => void;
   draggable?: boolean;
   dragHint?: string;
+  canDragInParent?: (parentId: string | null) => boolean;
+  getSortValue: (id: string) => NotebookSortPref;
+  sortMenuOpenId?: string | null;
+  onSortMenuToggle?: (id: string) => void;
+  onSortChange?: (id: string, next: NotebookSortPref) => void;
+  onSortClose?: () => void;
   onDragStart?: (e: React.DragEvent, id: string) => void;
   onDragOver?: (e: React.DragEvent, id: string) => void;
   onDragEnd?: () => void;
   onDrop?: (e: React.DragEvent, id: string) => void;
   dragOverId?: string | null;
-  dragOverZone?: "before" | "inside" | null;
+  dragOverZone?: NotebookDropZone | null;
   noteDragOverId?: string | null;
   noteItemDragOverId?: string | null;
   noteItemDragOverZone?: NoteDropZone | null;
@@ -662,16 +696,23 @@ function NotebookItem({
   const { t } = useTranslation();
   const isSelected = selectedId === notebook.id;
   const hasChildren = notebook.children && notebook.children.length > 0;
-  const notes = notesByNotebookId?.get(notebook.id) || [];
   const notesLoading = !!loadingNotebookIds?.has(notebook.id);
+  const rawNotes = notesByNotebookId?.get(notebook.id) || [];
+  const childSortValue = getSortValue(notebook.id);
+  const notes = useMemo(
+    () => sortNotebookNotes(rawNotes, childSortValue),
+    [rawNotes, childSortValue],
+  );
   const hasNotes = showNotes && (notesLoading || (notes?.length ?? 0) > 0 || (notebook.noteCount ?? 0) > 0);
   const hasExpandableContent = hasChildren || hasNotes;
   const isExpanded = notebook.isExpanded === 1;
   const isEditing = editingId === notebook.id;
+  const rowDraggable = canDragInParent ? canDragInParent(notebook.parentId ?? null) : !!draggable;
   const isDragOver = dragOverId === notebook.id;
   const isNoteDragOver = noteDragOverId === notebook.id;
   const showBeforeIndicator = isDragOver && dragOverZone === "before";
   const showInsideIndicator = isDragOver && dragOverZone === "inside";
+  const showAfterIndicator = isDragOver && dragOverZone === "after";
   const inputRef = useRef<HTMLInputElement>(null);
   const iconRef = useRef<HTMLButtonElement>(null);
   const [showIconPicker, setShowIconPicker] = useState(false);
@@ -741,6 +782,7 @@ function NotebookItem({
         className={cn(
           "relative flex items-center gap-1 px-2 py-1.5 rounded-md cursor-pointer text-sm group transition-colors",
           constrainWidth ? "w-full min-w-0" : "w-max min-w-full",
+          sortMenuOpenId === notebook.id && "z-[80]",
           isSelected ? "bg-app-active text-tx-primary font-medium" : "text-tx-secondary hover:bg-app-hover hover:text-tx-primary",
           // inside 放置指示：显著的内边框 + 背景高亮，让用户清楚"将作为子项放入"
           showInsideIndicator && "outline outline-2 outline-accent-primary bg-accent-primary/15",
@@ -752,7 +794,7 @@ function NotebookItem({
         }}
         onClick={() => onSelect(notebook.id)}
         onContextMenu={(e) => onContextMenu(e, notebook.id)}
-        title={!draggable ? dragHint : undefined}
+        title={!rowDraggable ? dragHint : undefined}
         onTouchStart={(e) => {
           if (isEditing || !onLongPress) return;
           const touch = e.touches[0];
@@ -778,7 +820,7 @@ function NotebookItem({
         }}
         onTouchEnd={cancelLongPress}
         onTouchCancel={cancelLongPress}
-        draggable={draggable && !isEditing}
+        draggable={rowDraggable && !isEditing}
         // framer-motion 的 motion.div 把 onDragStart/onDrag/onDragEnd 的类型
         // 重载为手势系统签名（MouseEvent | PointerEvent | TouchEvent + PanInfo），
         // 且没有暴露 React.DragEvent 的重载分支。但只有在 motion 组件显式设置
@@ -812,12 +854,12 @@ function NotebookItem({
             style={{ left: `${(depth - 1) * SIDEBAR_TREE_INDENT + 35}px`, width: "14px" }}
           />
         )}
-        {(draggable || dragHint) && (
+        {(rowDraggable || dragHint) && (
           <GripVertical
             size={12}
             className={cn(
               "text-tx-tertiary opacity-0 group-hover:opacity-60 transition-opacity shrink-0",
-              draggable ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-30 group-hover:opacity-40"
+              rowDraggable ? "cursor-grab active:cursor-grabbing" : "cursor-not-allowed opacity-30 group-hover:opacity-40"
             )}
           />
         )}
@@ -871,7 +913,34 @@ function NotebookItem({
               )}
             </span>
             {showNotes && onCreateNote && (
-              <>
+              <div className={cn(
+                "sticky right-1 ml-auto flex shrink-0 items-center gap-0.5 rounded-md bg-app-sidebar/95 pl-1",
+                sortMenuOpenId === notebook.id ? "z-[90]" : "z-10"
+              )}>
+                <div className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSortMenuToggle?.(notebook.id);
+                    }}
+                    className={cn(
+                      "w-5 h-5 shrink-0 flex items-center justify-center rounded text-tx-tertiary hover:text-accent-primary hover:bg-app-hover transition-colors opacity-0 group-hover:opacity-100",
+                      childSortValue.by !== "manual" && "opacity-100 text-accent-primary bg-accent-primary/10"
+                    )}
+                    title={t("sidebar.notebookSort", "笔记本排序")}
+                    aria-label={t("sidebar.notebookSort", "笔记本排序")}
+                  >
+                    <ArrowUpDown size={12} />
+                  </button>
+                  {sortMenuOpenId === notebook.id && (
+                    <NotebookSortMenu
+                      value={childSortValue}
+                      onChange={(next) => onSortChange?.(notebook.id, next)}
+                      onClose={() => onSortClose?.()}
+                    />
+                  )}
+                </div>
                 <button
                   ref={createMenuBtnRef}
                   type="button"
@@ -891,11 +960,17 @@ function NotebookItem({
                     onClose={() => setShowCreateMenu(false)}
                   />
                 )}
-              </>
+              </div>
             )}
           </>
         )}
       </motion.div>
+      {showAfterIndicator && (
+        <div
+          className="h-0.5 bg-accent-primary rounded-full mx-2 my-0.5 pointer-events-none"
+          style={{ marginLeft: `${depth * SIDEBAR_TREE_INDENT + 16}px` }}
+        />
+      )}
       <AnimatePresence>
         {hasExpandableContent && isExpanded && (
           <motion.div
@@ -927,6 +1002,12 @@ function NotebookItem({
                 onIconChange={onIconChange}
                 draggable={draggable}
                 dragHint={dragHint}
+                canDragInParent={canDragInParent}
+                getSortValue={getSortValue}
+                sortMenuOpenId={sortMenuOpenId}
+                onSortMenuToggle={onSortMenuToggle}
+                onSortChange={onSortChange}
+                onSortClose={onSortClose}
                 onDragStart={onDragStart}
                 onDragOver={onDragOver}
                 onDragEnd={onDragEnd}
@@ -1188,13 +1269,13 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   // 笔记本拖拽排序状态
   const [dragNbId, setDragNbId] = useState<string | null>(null);
   const [dragOverNbId, setDragOverNbId] = useState<string | null>(null);
-  const [dragOverNbZone, setDragOverNbZone] = useState<"before" | "inside" | null>(null);
+  const [dragOverNbZone, setDragOverNbZone] = useState<NotebookDropZone | null>(null);
   const [dragNoteId, setDragNoteId] = useState<string | null>(null);
   const [dragOverNoteNotebookId, setDragOverNoteNotebookId] = useState<string | null>(null);
   const [dragOverSidebarNoteId, setDragOverSidebarNoteId] = useState<string | null>(null);
   const [dragOverSidebarNoteZone, setDragOverSidebarNoteZone] = useState<NoteDropZone | null>(null);
-  const [notebookSortPref, setNotebookSortPref] = useState<NotebookSortPref>(() => loadNotebookSortPref());
-  const [showNotebookSortMenu, setShowNotebookSortMenu] = useState(false);
+  const [notebookSortPrefs, setNotebookSortPrefs] = useState<NotebookSortPrefMap>(() => loadNotebookSortPrefs());
+  const [openNotebookSortParentId, setOpenNotebookSortParentId] = useState<string | null>(null);
   const notebookSortMenuRef = useRef<HTMLDivElement>(null);
 
   // 标签颜色选择浮层状态（通过右键 / 长按触发）
@@ -1209,9 +1290,24 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const tagLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tagLongPressFired = useRef(false);
 
-  const canDragNotebookSort = notebookSortPref.by === "manual";
-  const notebookDragHint = getNotebookDragHint(canDragNotebookSort);
-  const tree = useMemo(() => buildNotebookTree(state.notebooks, notebookSortPref), [notebookSortPref, state.notebooks]);
+  const getNotebookSortPref = useCallback(
+    (parentId: string | null) => getNotebookSortPrefForParent(notebookSortPrefs, parentId),
+    [notebookSortPrefs],
+  );
+  const setNotebookSortPrefForParent = useCallback((parentId: string | null, next: NotebookSortPref) => {
+    setNotebookSortPrefs((prev) => {
+      const updated = { ...prev, [notebookSortKey(parentId)]: next };
+      saveNotebookSortPrefs(updated);
+      return updated;
+    });
+  }, []);
+  const rootNotebookSortPref = getNotebookSortPref(null);
+  const isManualNotebookGroup = useCallback(
+    (parentId: string | null) => getNotebookSortPref(parentId).by === "manual",
+    [getNotebookSortPref],
+  );
+  const notebookDragHint = getNotebookDragHint(rootNotebookSortPref.by === "manual");
+  const tree = useMemo(() => buildNotebookTree(state.notebooks, getNotebookSortPref), [getNotebookSortPref, state.notebooks]);
   const notebookTreeMinWidth = useMemo(
     () => sidebarTreeContentMinWidth(getMaxNotebookDepth(tree)),
     [tree]
@@ -1232,22 +1328,15 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
   const notebookSortTitle = t("sidebar.notebookSort", "笔记本排序");
 
   useEffect(() => {
-    if (!showNotebookSortMenu) return;
+    if (!openNotebookSortParentId) return;
     const onMouseDown = (e: MouseEvent) => {
       if (!notebookSortMenuRef.current?.contains(e.target as Node)) {
-        setShowNotebookSortMenu(false);
+        setOpenNotebookSortParentId(null);
       }
     };
     document.addEventListener("mousedown", onMouseDown);
     return () => document.removeEventListener("mousedown", onMouseDown);
-  }, [showNotebookSortMenu]);
-
-  useEffect(() => {
-    if (canDragNotebookSort) return;
-    setDragNbId(null);
-    setDragOverNbId(null);
-    setDragOverNbZone(null);
-  }, [canDragNotebookSort]);
+  }, [openNotebookSortParentId]);
 
   useEffect(() => {
     notesByNotebookIdRef.current = notesByNotebookId;
@@ -1377,9 +1466,10 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     return false;
   }, [state.notebooks]);
 
-  // 笔记本拖拽：按鼠标垂直位置区分"before"（同级排到之前）与"inside"（设为子项）
+  // 笔记本拖拽：按鼠标垂直位置区分 before / inside / after。
   const handleNbDragStart = useCallback((e: React.DragEvent, id: string) => {
-    if (!canDragNotebookSort) {
+    const source = state.notebooks.find((n) => n.id === id);
+    if (!source || !isManualNotebookGroup(source.parentId ?? null)) {
       e.preventDefault();
       return;
     }
@@ -1390,15 +1480,9 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
     setDragOverSidebarNoteZone(null);
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", id);
-  }, [canDragNotebookSort]);
+  }, [isManualNotebookGroup, state.notebooks]);
 
   const handleNbDragOver = useCallback((e: React.DragEvent, id: string) => {
-    if (!canDragNotebookSort) {
-      e.dataTransfer.dropEffect = "none";
-      setDragOverNbId(null);
-      setDragOverNbZone(null);
-      return;
-    }
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     if (!dragNbId) {
@@ -1418,16 +1502,18 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
       setDragOverNbZone(null);
       return;
     }
-    // 根据鼠标在目标元素内的纵向位置划分区域：
-    //   上 30% → before（同级排到目标之前）
-    //   下 70% → inside（成为该笔记本的子项）
-    // 扩大 inside 命中区，避免用户在行中央偏上时误触发 before 导致"拖了等于没拖"
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const offset = e.clientY - rect.top;
-    const zone: "before" | "inside" = offset < rect.height * 0.3 ? "before" : "inside";
+    const zone = getNotebookDropZone(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect());
+    const target = state.notebooks.find((n) => n.id === id);
+    const targetParentId = zone === "inside" ? id : target?.parentId ?? null;
+    if (!target || !isManualNotebookGroup(targetParentId)) {
+      e.dataTransfer.dropEffect = "none";
+      setDragOverNbId(null);
+      setDragOverNbZone(null);
+      return;
+    }
     setDragOverNbId(id);
     setDragOverNbZone(zone);
-  }, [canDragNotebookSort, dragNbId, isDescendant]);
+  }, [dragNbId, isDescendant, isManualNotebookGroup, state.notebooks]);
 
   const handleNbDragEnd = useCallback(() => {
     setDragNbId(null);
@@ -1437,85 +1523,32 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
 
   const handleNbDrop = useCallback(async (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
-    if (!canDragNotebookSort) {
-      setDragNbId(null);
-      setDragOverNbId(null);
-      setDragOverNbZone(null);
-      return;
-    }
     const sourceId = dragNbId;
-    const zone = dragOverNbZone;
+    const zone = dragOverNbZone || getNotebookDropZone(e.clientY, (e.currentTarget as HTMLElement).getBoundingClientRect());
     setDragNbId(null);
     setDragOverNbId(null);
     setDragOverNbZone(null);
     if (!sourceId || sourceId === targetId || !zone) return;
-    if (isDescendant(sourceId, targetId)) return;
 
-    const sourceNb = state.notebooks.find((n) => n.id === sourceId);
-    const targetNb = state.notebooks.find((n) => n.id === targetId);
-    if (!sourceNb || !targetNb) return;
+    const result = reorderNotebooksForDrop(state.notebooks, sourceId, targetId, zone);
+    if (!result) return;
+    if (!isManualNotebookGroup(result.movePayload.parentId)) return;
 
-    if (zone === "inside") {
-      // 放进 target 作为子项：父级改为 targetId
-      if (sourceNb.parentId === targetId) return;
-      // 乐观更新
-      actions.setNotebooks(
-        state.notebooks.map((n) =>
-          n.id === sourceId ? { ...n, parentId: targetId } : n.id === targetId ? { ...n, isExpanded: 1 } : n
-        )
-      );
-      try {
-        await api.moveNotebook(sourceId, { parentId: targetId });
-        // 展开父级
-        if (targetNb.isExpanded !== 1) {
-          api.updateNotebook(targetId, { isExpanded: 1 } as any).catch(console.error);
+    actions.setNotebooks(result.nextNotebooks);
+    try {
+      await api.moveNotebook(sourceId, result.movePayload);
+      await api.reorderNotebooks(result.reorderItems);
+      if (result.expandedNotebookId) {
+        const targetNb = state.notebooks.find((n) => n.id === result.expandedNotebookId);
+        if (targetNb && targetNb.isExpanded !== 1) {
+          api.updateNotebook(result.expandedNotebookId, { isExpanded: 1 } as any).catch(console.error);
         }
-      } catch (err) {
-        console.error("Failed to move notebook:", err);
-        actions.refreshNotebooks();
       }
-    } else {
-      // before：将 source 移到 target 的同级（父级 = target.parentId），并排到 target 之前
-      const newParentId = targetNb.parentId ?? null;
-      const changedParent = sourceNb.parentId !== newParentId;
-
-      // 重新计算同级列表（target 所在的父级下的所有笔记本，按 sortOrder）
-      const siblings = state.notebooks
-        .filter((n) => (n.parentId ?? null) === newParentId && n.id !== sourceId)
-        .sort((a, b) => a.sortOrder - b.sortOrder);
-      const targetIdx = siblings.findIndex((n) => n.id === targetId);
-      if (targetIdx === -1) return;
-
-      const newOrder = [...siblings];
-      newOrder.splice(targetIdx, 0, { ...sourceNb, parentId: newParentId });
-
-      // 乐观更新状态
-      const updatedMap = new Map(newOrder.map((n, i) => [n.id, i]));
-      actions.setNotebooks(
-        state.notebooks.map((n) => {
-          if (n.id === sourceId) {
-            return { ...n, parentId: newParentId, sortOrder: updatedMap.get(n.id) ?? n.sortOrder };
-          }
-          if (updatedMap.has(n.id)) {
-            return { ...n, sortOrder: updatedMap.get(n.id)! };
-          }
-          return n;
-        })
-      );
-
-      try {
-        // 如果父级变化，先调用 move 接口（允许 parentId 为 null）
-        if (changedParent) {
-          await api.moveNotebook(sourceId, { parentId: newParentId });
-        }
-        // 然后批量更新同级 sortOrder
-        await api.reorderNotebooks(newOrder.map((n, i) => ({ id: n.id, sortOrder: i })));
-      } catch (err) {
-        console.error("Failed to move/reorder notebook:", err);
-        actions.refreshNotebooks();
-      }
+    } catch (err) {
+      console.error("Failed to move/reorder notebook:", err);
+      actions.refreshNotebooks();
     }
-  }, [canDragNotebookSort, dragNbId, dragOverNbZone, isDescendant, state.notebooks, actions]);
+  }, [actions, dragNbId, dragOverNbZone, isManualNotebookGroup, state.notebooks]);
 
   const handleSidebarNoteDragStart = useCallback((e: React.DragEvent, noteId: string) => {
     e.stopPropagation();
@@ -2506,22 +2539,24 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
             size="icon"
             className={cn(
               "h-6 w-6",
-              notebookSortPref.by !== "manual" && "text-accent-primary bg-accent-primary/10"
+              rootNotebookSortPref.by !== "manual" && "text-accent-primary bg-accent-primary/10"
             )}
-            onClick={() => setShowNotebookSortMenu((v) => !v)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenNotebookSortParentId((current) => current === ROOT_NOTEBOOK_SORT_KEY ? null : ROOT_NOTEBOOK_SORT_KEY);
+            }}
             title={notebookSortTitle}
             aria-label={notebookSortTitle}
           >
             <ArrowUpDown size={14} />
           </Button>
-          {showNotebookSortMenu && (
+          {openNotebookSortParentId === ROOT_NOTEBOOK_SORT_KEY && (
             <NotebookSortMenu
-              value={notebookSortPref}
+              value={rootNotebookSortPref}
               onChange={(next) => {
-                setNotebookSortPref(next);
-                saveNotebookSortPref(next);
+                setNotebookSortPrefForParent(null, next);
               }}
-              onClose={() => setShowNotebookSortMenu(false)}
+              onClose={() => setOpenNotebookSortParentId(null)}
             />
           )}
           <Button
@@ -2586,8 +2621,16 @@ export default function Sidebar({ variant = "mobile" }: { variant?: "desktop" | 
                     onEditSubmit={handleEditSubmit}
                     onEditCancel={handleEditCancel}
                     onIconChange={handleIconChange}
-                    draggable={canDragNotebookSort}
+                    draggable={isManualNotebookGroup(null)}
                     dragHint={notebookDragHint}
+                    canDragInParent={isManualNotebookGroup}
+                    getSortValue={(id) => getNotebookSortPref(id)}
+                    sortMenuOpenId={openNotebookSortParentId}
+                    onSortMenuToggle={(id) => {
+                      setOpenNotebookSortParentId((current) => current === id ? null : id);
+                    }}
+                    onSortChange={(id, next) => setNotebookSortPrefForParent(id, next)}
+                    onSortClose={() => setOpenNotebookSortParentId(null)}
                     onDragStart={handleNbDragStart}
                     onDragOver={handleNbDragOver}
                     onDragEnd={handleNbDragEnd}

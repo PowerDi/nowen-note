@@ -58,3 +58,5 @@ dist-electron-lite/win-unpacked
 dist-electron-lite/.icon-ico
 dist-electron-lite
 tsconfig.tsbuildinfo
+backend-dev.out
+frontend-dev.out
