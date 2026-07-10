@@ -1,25 +1,8 @@
 /**
  * CommandPalette —— Cmd-K 全局搜索弹窗
  * ----------------------------------------------------------------------------
- * 为什么不用 Sidebar 搜索框？
- *   - Sidebar 搜索把结果灌回 NoteList 的"search 视图"，是 **持久化浏览** 语义；
- *     用户要继续阅读结果列表，视图会切走，要手动切回来。
- *   - Cmd-K 是 **即用即走** 语义：快速跳转，跳完即关；保持当前 viewMode 不变。
- *   - 二者各司其职。Sidebar 搜索 = 筛选浏览；Cmd-K = 跳转导航。
- *
- * 触发来源：
- *   1) macOS 原生 "搜索" 菜单项（menu:search → useDesktopMenuBridge → onOpenSearch）
- *   2) Dock 右键 "搜索笔记"（dock:search）
- *   3) 键盘 Cmd/Ctrl+K（本组件自己监听 window keydown）
- *
- * 实现选择：
- *   - Portal 到 document.body，不被父级 overflow/transform 牵连；
- *   - 搜索输入 debounce 200ms，避免每键一次 HTTP；
- *   - 空查询不请求接口；
- *   - 键盘：Up/Down 选择、Enter 跳转、Esc 关闭；鼠标 hover 同步高亮；
- *   - 点击结果或 Enter → `api.getNote(id)` 取详情 → `actions.setActiveNote`，
- *     与 Sidebar 搜索命中同一条数据通路，保证打开后编辑器正常渲染；
- *   - 面板尺寸与 SettingsModal 保持一致的"上偏移居中"定位（HIG 命令面板惯例）。
+ * Sidebar 搜索负责持久化浏览，并由 SearchCenter 展示完整结果页；Cmd-K 仍然保持
+ * “即用即走”的快速跳转语义。两套入口共用同一个后端搜索接口，但互不改变对方状态。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -29,6 +12,7 @@ import { useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
 import type { SearchResult } from "@/types";
+import SearchCenter from "@/components/SearchCenter";
 
 export interface CommandPaletteProps {
   /** 由外部控制开合；App 层一个 useState 即可 */
@@ -48,19 +32,14 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 打开时：清空旧状态、focus 输入框
   useEffect(() => {
     if (!open) return;
     setQuery("");
     setResults([]);
     setActiveIdx(0);
-    // rAF 等一帧让 Portal DOM 就位
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
+    requestAnimationFrame(() => inputRef.current?.focus());
   }, [open]);
 
-  // 关闭时：清理 pending 请求与 debounce
   useEffect(() => {
     if (open) return;
     if (debounceRef.current) {
@@ -71,13 +50,12 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     abortRef.current = null;
   }, [open]);
 
-  // query 变化 → debounce 200ms 请求
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    const q = query.trim();
-    if (!q) {
+    const normalized = query.trim();
+    if (!normalized) {
       setResults([]);
       setLoading(false);
       return;
@@ -86,129 +64,108 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
     setLoading(true);
     debounceRef.current = setTimeout(async () => {
       debounceRef.current = null;
-      // 取消上一次可能还未返回的请求（api.search 目前不吃 signal，我们用"丢弃结果"实现取消语义）
-      const my = new AbortController();
+      const request = new AbortController();
       abortRef.current?.abort();
-      abortRef.current = my;
+      abortRef.current = request;
       try {
-        const r = await api.search(q);
-        if (my.signal.aborted) return;
-        setResults(r);
+        const rows = await api.search(normalized);
+        if (request.signal.aborted) return;
+        setResults(rows);
         setActiveIdx(0);
-      } catch (err) {
-        if (my.signal.aborted) return;
-        console.warn("[CommandPalette] search failed:", err);
+      } catch (error) {
+        if (request.signal.aborted) return;
+        console.warn("[CommandPalette] search failed:", error);
         setResults([]);
       } finally {
-        if (!my.signal.aborted) setLoading(false);
+        if (!request.signal.aborted) setLoading(false);
       }
     }, 200);
-  }, [query, open]);
+  }, [open, query]);
 
-  // 全局 Cmd/Ctrl+K：在任何地方都能打开；Esc 关闭
-  // 注意：Cmd-K 通常会被 Chrome 占用（焦点地址栏），但在 Electron 中不会，Web 端我们
-  // preventDefault 后即可覆盖默认行为；已经打开则忽略（避免重复 focus 抖动）。
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        if (!open) {
-          // 由外部控制开合，发个 CustomEvent 让 App 层监听并 setOpen(true)
-          window.dispatchEvent(new CustomEvent("nowen:open-command-palette"));
-        }
-      } else if (open && e.key === "Escape") {
-        e.preventDefault();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (!open) window.dispatchEvent(new CustomEvent("nowen:open-command-palette"));
+      } else if (open && event.key === "Escape") {
+        event.preventDefault();
         onClose();
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
 
-  // 跳转到笔记：拉详情 → setActiveNote（与 Sidebar 搜索命中一致的数据通路）
-  const jumpTo = useCallback(
-    async (id: string) => {
-      try {
-        const note = await api.getNote(id);
-        if (note) {
-          actions.setActiveNote(note);
-          actions.setMobileView?.("editor");
-        }
-      } catch (err) {
-        console.error("[CommandPalette] open note failed:", err);
-      } finally {
-        onClose();
+  const jumpTo = useCallback(async (id: string) => {
+    try {
+      const note = await api.getNote(id);
+      if (note) {
+        actions.setActiveNote(note);
+        actions.setMobileView("editor");
       }
-    },
-    [actions, onClose],
-  );
+    } catch (error) {
+      console.error("[CommandPalette] open note failed:", error);
+    } finally {
+      onClose();
+    }
+  }, [actions, onClose]);
 
-  // 列表内键盘导航
-  const onInputKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (!results.length) return;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIdx((i) => Math.min(i + 1, results.length - 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIdx((i) => Math.max(i - 1, 0));
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const hit = results[activeIdx];
-        if (hit) void jumpTo(hit.id);
-      }
-    },
-    [results, activeIdx, jumpTo],
-  );
+  const onInputKeyDown = useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!results.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIdx((index) => Math.min(index + 1, results.length - 1));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIdx((index) => Math.max(index - 1, 0));
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const result = results[activeIdx];
+      if (result) void jumpTo(result.id);
+    }
+  }, [activeIdx, jumpTo, results]);
 
-  // activeIdx 变化时，把高亮项滚到视口内
   useEffect(() => {
-    const el = listRef.current?.querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`);
-    el?.scrollIntoView({ block: "nearest" });
+    const element = listRef.current?.querySelector<HTMLElement>(`[data-idx="${activeIdx}"]`);
+    element?.scrollIntoView({ block: "nearest" });
   }, [activeIdx, results]);
 
-  const body = useMemo(() => {
+  const paletteBody = useMemo(() => {
     if (!open) return null;
     return (
       <div
-        className="fixed inset-0 z-[200] flex items-start justify-center pt-[15vh] px-4"
-        onClick={(e) => {
-          // 只有点 backdrop 时关闭；面板内的点击不冒泡到此处
-          if (e.target === e.currentTarget) onClose();
+        className="fixed inset-0 z-[200] flex items-start justify-center px-4 pt-[15vh]"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) onClose();
         }}
       >
-        {/* Backdrop */}
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" aria-hidden />
-        {/* Panel */}
         <div
-          className="relative w-full max-w-[640px] bg-app-elevated border border-app-border rounded-xl shadow-2xl overflow-hidden"
+          className="relative w-full max-w-[640px] overflow-hidden rounded-xl border border-app-border bg-app-elevated shadow-2xl"
           role="dialog"
           aria-modal="true"
           aria-label="全局搜索"
-          onClick={(e) => e.stopPropagation()}
+          onClick={(event) => event.stopPropagation()}
         >
-          {/* 输入框 */}
-          <div className="flex items-center gap-2 px-4 py-3 border-b border-app-border">
-            <SearchIcon size={18} className="text-tx-tertiary shrink-0" />
+          <div className="flex items-center gap-2 border-b border-app-border px-4 py-3">
+            <SearchIcon size={18} className="shrink-0 text-tx-tertiary" />
             <input
               ref={inputRef}
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(event) => setQuery(event.target.value)}
               onKeyDown={onInputKeyDown}
               placeholder="搜索笔记标题与内容…"
-              className="flex-1 bg-transparent outline-none text-sm text-tx-primary placeholder:text-tx-tertiary"
+              className="flex-1 bg-transparent text-sm text-tx-primary outline-none placeholder:text-tx-tertiary"
               autoComplete="off"
               spellCheck={false}
             />
             {loading && <Loader2 size={16} className="animate-spin text-tx-tertiary" />}
-            <kbd className="hidden sm:inline-flex items-center px-1.5 h-5 rounded border border-app-border text-[10px] text-tx-tertiary">
+            <kbd className="hidden h-5 items-center rounded border border-app-border px-1.5 text-[10px] text-tx-tertiary sm:inline-flex">
               Esc
             </kbd>
           </div>
 
-          {/* 结果列表 */}
           <div ref={listRef} className="max-h-[50vh] overflow-y-auto py-1">
             {results.length === 0 && query.trim() && !loading && (
               <div className="px-4 py-6 text-center text-sm text-tx-tertiary">
@@ -220,33 +177,33 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
                 输入关键词开始搜索（↑↓ 选择，Enter 打开，Esc 关闭）
               </div>
             )}
-            {results.map((r, idx) => {
-              const isActive = idx === activeIdx;
-              const snippetHtml = r.snippetHtml || r.snippet;
+            {results.map((result, index) => {
+              const active = index === activeIdx;
+              const snippetHtml = result.snippetHtml || result.snippet;
               return (
                 <button
-                  key={r.id}
-                  data-idx={idx}
+                  key={result.id}
+                  data-idx={index}
                   type="button"
-                  onMouseEnter={() => setActiveIdx(idx)}
-                  onClick={() => void jumpTo(r.id)}
+                  onMouseEnter={() => setActiveIdx(index)}
+                  onClick={() => void jumpTo(result.id)}
                   className={[
-                    "w-full text-left px-4 py-2 flex items-start gap-3 transition-colors",
-                    isActive ? "bg-app-hover" : "hover:bg-app-hover/60",
+                    "flex w-full items-start gap-3 px-4 py-2 text-left transition-colors",
+                    active ? "bg-app-hover" : "hover:bg-app-hover/60",
                   ].join(" ")}
                 >
-                  <FileText size={16} className="mt-0.5 text-tx-tertiary shrink-0" />
+                  <FileText size={16} className="mt-0.5 shrink-0 text-tx-tertiary" />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm text-tx-primary truncate search-result-html">
-                      {r.titleHtml ? (
-                        <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(r.titleHtml) }} />
+                    <div className="search-result-html truncate text-sm text-tx-primary">
+                      {result.titleHtml ? (
+                        <span dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(result.titleHtml) }} />
                       ) : (
-                        highlightTextNode(r.title || "(无标题)", query)
+                        highlightTextNode(result.title || "(无标题)", query)
                       )}
                     </div>
                     {snippetHtml && (
                       <div
-                        className="text-xs text-tx-tertiary truncate mt-0.5 search-result-html"
+                        className="search-result-html mt-0.5 truncate text-xs text-tx-tertiary"
                         dangerouslySetInnerHTML={{ __html: sanitizeSearchHtml(snippetHtml) }}
                       />
                     )}
@@ -258,8 +215,12 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
         </div>
       </div>
     );
-  }, [open, query, loading, results, activeIdx, onInputKeyDown, jumpTo, onClose]);
+  }, [activeIdx, jumpTo, loading, onClose, onInputKeyDown, open, query, results]);
 
-  if (typeof document === "undefined") return null;
-  return createPortal(body, document.body);
+  return (
+    <>
+      <SearchCenter />
+      {typeof document !== "undefined" && paletteBody ? createPortal(paletteBody, document.body) : null}
+    </>
+  );
 }
