@@ -143,9 +143,10 @@ export default function RenameContextNoteModal({
         ...(updated?.updatedAt ? { updatedAt: updated.updatedAt } : {}),
       });
 
-      if (state.activeNote?.id === note.id) {
+      const currentActiveNote = state.activeNote;
+      if (currentActiveNote && currentActiveNote.id === note.id) {
         actions.setActiveNote({
-          ...state.activeNote,
+          ...currentActiveNote,
           title: nextTitle,
           ...(typeof updated?.version === "number" ? { version: updated.version } : {}),
           ...(updated?.updatedAt ? { updatedAt: updated.updatedAt } : {}),
