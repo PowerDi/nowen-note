@@ -8,16 +8,24 @@ type GuardedWindow = Window & typeof globalThis & {
   [INSTALL_KEY]?: () => void;
 };
 
+/**
+ * A queued/offline acknowledgement is not a Note detail. Require the identity, body,
+ * revision and timestamp fields that the server's successful update response returns
+ * before allowing callers to replace activeNote wholesale.
+ */
 export function isCompleteNoteUpdateResponse(value: unknown, noteId?: string): value is Note {
   const note = value as Partial<Note> | null;
   return !!note &&
     typeof note.id === "string" && note.id.length > 0 &&
     (!noteId || note.id === noteId) &&
+    typeof note.userId === "string" && note.userId.length > 0 &&
+    typeof note.notebookId === "string" && note.notebookId.length > 0 &&
     typeof note.title === "string" &&
     typeof note.content === "string" &&
     typeof note.contentText === "string" &&
     typeof note.version === "number" && Number.isFinite(note.version) &&
-    typeof note.updatedAt === "string";
+    typeof note.createdAt === "string" && note.createdAt.length > 0 &&
+    typeof note.updatedAt === "string" && note.updatedAt.length > 0;
 }
 
 function pendingError(noteId: string): Error {
@@ -30,11 +38,6 @@ function pendingError(noteId: string): Error {
   return error;
 }
 
-/**
- * api.ts returns a partial optimistic object when a retryable PUT is queued offline.
- * That object is useful as an internal queue acknowledgement but is not a Note detail and
- * must never reach callers that replace activeNote wholesale.
- */
 export function installNoteUpdateResponseGuard(): void {
   if (typeof window === "undefined") return;
   const guardedWindow = window as GuardedWindow;
@@ -46,11 +49,7 @@ export function installNoteUpdateResponseGuard(): void {
     if (isCompleteNoteUpdateResponse(result, noteId)) return result;
 
     window.dispatchEvent(new CustomEvent(NOTE_SYNC_PENDING_EVENT, {
-      detail: {
-        noteId,
-        queued: true,
-        responseIncomplete: true,
-      },
+      detail: { noteId, queued: true, responseIncomplete: true },
     }));
     throw pendingError(noteId);
   };
