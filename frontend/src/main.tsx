@@ -13,6 +13,7 @@ import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installShareLightboxRotationGuard } from "./lib/shareLightboxRotationGuard";
 import { installMobileImageFocusGuard } from "./lib/mobileImageFocusGuard";
+import { installNoteSyncSafety } from "./lib/noteSyncSafety";
 
 function removeBootSplash() {
   try {
@@ -33,9 +34,10 @@ function BootSplashRemover() {
   return null;
 }
 
-// Android 原生端的 API GET/HEAD 在 React 挂载前启用 CapacitorHttp 优先通道。
-// 这会同时覆盖启动鉴权与笔记列表首屏请求，避免蜂窝网络下 WebView fetch 长时间挂起。
+// Android native API reads are installed before React. Note-write safety is installed
+// immediately afterwards so startup/offline restoration can never bypass revision checks.
 installAndroidNativeHttpBridge();
+installNoteSyncSafety();
 installShareLightboxRotationGuard();
 installMobileImageFocusGuard();
 
