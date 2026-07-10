@@ -108,6 +108,7 @@ export function attachMarkdownSplitScrollSync(view: EditorView, previewRoot: HTM
   let lock: "source" | "preview" | null = null;
   let unlockTimer: number | null = null;
   let frame = 0;
+  let disposed = false;
 
   const setLock = (side: "source" | "preview") => {
     lock = side;
@@ -117,7 +118,9 @@ export function attachMarkdownSplitScrollSync(view: EditorView, previewRoot: HTM
 
   const schedule = (callback: () => void) => {
     window.cancelAnimationFrame(frame);
-    frame = window.requestAnimationFrame(callback);
+    frame = window.requestAnimationFrame(() => {
+      if (!disposed) callback();
+    });
   };
 
   const syncFromSource = () => {
@@ -151,7 +154,12 @@ export function attachMarkdownSplitScrollSync(view: EditorView, previewRoot: HTM
   view.scrollDOM.addEventListener("scroll", syncFromSource, { passive: true });
   previewRoot.addEventListener("scroll", syncFromPreview, { passive: true });
 
+  // Entering split mode should immediately preserve the source editor's context.
+  // Waiting one frame lets React finish laying out the preview before measuring anchors.
+  syncFromSource();
+
   return () => {
+    disposed = true;
     view.scrollDOM.removeEventListener("scroll", syncFromSource);
     previewRoot.removeEventListener("scroll", syncFromPreview);
     window.cancelAnimationFrame(frame);
