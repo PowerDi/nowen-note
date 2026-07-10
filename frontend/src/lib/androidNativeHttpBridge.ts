@@ -102,12 +102,25 @@ export function isAndroidNativeRuntime(): boolean {
   }
 }
 
+function isJsonApiRead(input: FetchInput, init: FetchInit | undefined, url: URL): boolean {
+  if (!/(?:^|\/)api(?:\/|$)/.test(url.pathname)) return false;
+
+  const headers = mergeRequestHeaders(input, init);
+  const contentType = headers["content-type"] || "";
+  const accept = headers.accept || "";
+  if (/json/i.test(contentType) || /json/i.test(accept)) return true;
+
+  // These bootstrap reads are issued directly rather than through api.request(),
+  // so they do not carry Content-Type: application/json even though they return JSON.
+  return /(?:^|\/)api\/(?:auth\/verify|settings|health|version)\/?$/.test(url.pathname);
+}
+
 /**
  * Only JSON-style API reads are routed through CapacitorHttp.
  *
- * Uploads, downloads, streaming responses and mutations keep using the existing
- * fetch path so their body/stream semantics and offline queue behavior remain
- * unchanged.
+ * Uploads, binary attachment reads, downloads, streaming responses and mutations
+ * keep using the existing fetch path so body/stream semantics and the offline
+ * queue remain unchanged.
  */
 export function shouldUseAndroidNativeHttp(input: FetchInput, init?: FetchInit): boolean {
   if (!isAndroidNativeRuntime()) return false;
@@ -118,7 +131,7 @@ export function shouldUseAndroidNativeHttp(input: FetchInput, init?: FetchInit):
   try {
     const url = new URL(getRequestUrl(input), window.location.href);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return /(?:^|\/)api(?:\/|$)/.test(url.pathname);
+    return isJsonApiRead(input, init, url);
   } catch {
     return false;
   }
@@ -166,10 +179,10 @@ async function androidNativeFetch(
  * Installs a narrow fetch bridge before React mounts.
  *
  * Android WebView requests can remain pending on cellular networks when CORS,
- * DNS or IPv6 negotiation is unhealthy. API GET/HEAD requests therefore use
- * CapacitorHttp first (which is not constrained by WebView CORS). If the native
- * request fails or times out, the original fetch implementation remains as a
- * compatibility fallback.
+ * DNS or IPv6 negotiation is unhealthy. JSON API GET/HEAD requests therefore
+ * use CapacitorHttp first (which is not constrained by WebView CORS). If the
+ * native request fails or times out, the original fetch implementation remains
+ * as a compatibility fallback.
  */
 export function installAndroidNativeHttpBridge(
   options: AndroidNativeHttpBridgeOptions = {},
