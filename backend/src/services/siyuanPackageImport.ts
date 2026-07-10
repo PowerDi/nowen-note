@@ -18,6 +18,8 @@ interface ImportParams {
 interface ZipEntryLike {
     path: string;
     type?: string;
+    uncompressedSize?: number;
+    vars?: { uncompressedSize?: number };
     buffer(): Promise<Buffer>;
 }
 
@@ -55,9 +57,30 @@ const SY_RE = /\.sy$/i;
 const CONF_RE = /(^|\/)\.siyuan\/conf\.json$/i;
 const SORT_RE = /(^|\/)\.siyuan\/sort\.json$/i;
 const FIDELITY_NODE_TYPES = new Set(["NodeHTMLBlock", "NodeInlineHTML", "NodeIFrame"]);
+const DEFAULT_MAX_ZIP_ENTRIES = 50_000;
+const DEFAULT_MAX_SY_FILES = 20_000;
+const DEFAULT_MAX_SINGLE_SY_BYTES = 20 * 1024 * 1024;
+const DEFAULT_MAX_METADATA_BYTES = 5 * 1024 * 1024;
+
+function positiveEnv(name: string, fallback: number): number {
+    const parsed = Number(process.env[name]);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const METADATA_BUDGETS = {
+    maxEntries: positiveEnv("SIYUAN_IMPORT_MAX_ZIP_ENTRIES", DEFAULT_MAX_ZIP_ENTRIES),
+    maxSyFiles: positiveEnv("SIYUAN_IMPORT_MAX_SY_FILES", DEFAULT_MAX_SY_FILES),
+    maxSingleSyBytes: positiveEnv("SIYUAN_IMPORT_MAX_SINGLE_SY_BYTES", DEFAULT_MAX_SINGLE_SY_BYTES),
+    maxMetadataBytes: positiveEnv("SIYUAN_IMPORT_MAX_METADATA_BYTES", DEFAULT_MAX_METADATA_BYTES),
+};
 
 function normalizePath(value: string): string {
     return String(value || "").replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function entrySize(entry: ZipEntryLike): number {
+    const raw = entry.vars?.uncompressedSize ?? entry.uncompressedSize;
+    return Number.isFinite(raw) && raw !== undefined && raw >= 0 ? raw : 0;
 }
 
 function docIdFromPath(value: string): string {
@@ -86,8 +109,7 @@ function normalizeTitle(ast: SiyuanNode, fallback: string): string {
 }
 
 function containsFidelityNode(node: SiyuanNode): boolean {
-    if (FIDELITY_NODE_TYPES.has(node.Type)) return true;
-    return (node.Children || []).some(containsFidelityNode);
+    return FIDELITY_NODE_TYPES.has(node.Type) || (node.Children || []).some(containsFidelityNode);
 }
 
 function resolveBoxId(docPath: string, boxIds: Iterable<string>): string {
@@ -107,12 +129,24 @@ function parentDocIds(docPath: string, boxId: string): string[] {
         .filter((part) => part && part !== ".siyuan" && part !== "assets");
 }
 
+async function readSmallJson(entry: ZipEntryLike): Promise<any> {
+    if (entrySize(entry) > METADATA_BUDGETS.maxMetadataBytes) {
+        throw new SiyuanZipBudgetError(`思源元数据文件过大：${normalizePath(entry.path)}`);
+    }
+    return JSON.parse((await entry.buffer()).toString("utf8").replace(/^\uFEFF/, ""));
+}
+
 async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata> {
     const directory = await unzipper.Open.file(zipFilePath);
     const entries = directory.files as ZipEntryLike[];
+    if (entries.length > METADATA_BUDGETS.maxEntries) {
+        throw new SiyuanZipBudgetError(`思源导入包文件数量过多，最多支持 ${METADATA_BUDGETS.maxEntries} 个条目`);
+    }
+
     const boxes = new Map<string, BoxMeta>();
     const rawDocs: Array<{ path: string; ast: SiyuanNode; archiveIndex: number }> = [];
     const docSortByBox = new Map<string, Map<string, number>>();
+    let syFiles = 0;
     let requiresMarkdown = false;
 
     for (const [archiveIndex, entry] of entries.entries()) {
@@ -121,8 +155,7 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
 
         if (CONF_RE.test(entryPath)) {
             try {
-                const body = (await entry.buffer()).toString("utf8").replace(/^\uFEFF/, "");
-                const parsed = JSON.parse(body);
+                const parsed = await readSmallJson(entry);
                 const boxId = boxIdFromMetaPath(entryPath);
                 if (boxId) {
                     boxes.set(boxId, {
@@ -133,15 +166,15 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
                         archiveIndex,
                     });
                 }
-            } catch {
-                // The mature legacy importer reports malformed conf files as warnings.
+            } catch (error) {
+                if (error instanceof SiyuanZipBudgetError) throw error;
             }
             continue;
         }
 
         if (SORT_RE.test(entryPath)) {
             try {
-                const parsed = JSON.parse((await entry.buffer()).toString("utf8").replace(/^\uFEFF/, ""));
+                const parsed = await readSmallJson(entry);
                 const boxId = boxIdFromMetaPath(entryPath);
                 if (boxId && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
                     const map = new Map<string, number>();
@@ -151,45 +184,56 @@ async function readPackageMetadata(zipFilePath: string): Promise<PackageMetadata
                     }
                     docSortByBox.set(boxId, map);
                 }
-            } catch {
-                // Invalid sort metadata must not block importing the user's content.
+            } catch (error) {
+                if (error instanceof SiyuanZipBudgetError) throw error;
             }
             continue;
         }
 
-        if (SY_RE.test(entryPath)) {
-            try {
-                const ast = JSON.parse((await entry.buffer()).toString("utf8").replace(/^\uFEFF/, "")) as SiyuanNode;
-                rawDocs.push({ path: entryPath, ast, archiveIndex });
-                if (containsFidelityNode(ast)) requiresMarkdown = true;
-            } catch {
-                // The legacy importer owns parse warnings and skip behavior.
-            }
+        if (!SY_RE.test(entryPath)) continue;
+        syFiles += 1;
+        if (syFiles > METADATA_BUDGETS.maxSyFiles) {
+            throw new SiyuanZipBudgetError(`思源导入包 .sy 文件过多，最多支持 ${METADATA_BUDGETS.maxSyFiles} 个`);
+        }
+        if (entrySize(entry) > METADATA_BUDGETS.maxSingleSyBytes) {
+            throw new SiyuanZipBudgetError(`思源文档过大：${entryPath}`);
+        }
+        try {
+            const ast = JSON.parse((await entry.buffer()).toString("utf8").replace(/^\uFEFF/, "")) as SiyuanNode;
+            rawDocs.push({ path: entryPath, ast, archiveIndex });
+            if (containsFidelityNode(ast)) requiresMarkdown = true;
+        } catch {
+            // The mature legacy importer owns parse warnings and skip behavior.
         }
     }
 
-    const docsById = new Map<string, DocMeta>();
-    const docs = rawDocs
-        .map(({ path, ast, archiveIndex }) => {
-            const id = docIdFromPath(path);
-            const boxId = resolveBoxId(path, boxes.keys());
-            const meta: DocMeta = {
-                id,
-                path,
-                title: normalizeTitle(ast, id),
-                icon: decodeSiyuanEmoji(ast.Properties?.icon),
-                boxId,
-                parentDocIds: parentDocIds(path, boxId),
-                archiveIndex,
-                ast,
-            };
-            docsById.set(id, meta);
-            if (ast.ID && ast.ID !== id) docsById.set(ast.ID, meta);
-            return meta;
-        })
-        // Keep exactly the same source ordering as the legacy importer so result.notes
-        // can be safely paired with source documents for metadata post-processing.
+    // Mirror the legacy importer's id-alias and path de-duplication exactly. This keeps
+    // result.notes[index] paired with the same source document even for malformed exports
+    // containing duplicate IDs or an AST root ID that differs from its filename.
+    const aliasedDocs = new Map<string, DocMeta>();
+    for (const { path, ast, archiveIndex } of rawDocs) {
+        const id = docIdFromPath(path);
+        const boxId = resolveBoxId(path, boxes.keys());
+        const meta: DocMeta = {
+            id,
+            path,
+            title: normalizeTitle(ast, id),
+            icon: decodeSiyuanEmoji(ast.Properties?.icon),
+            boxId,
+            parentDocIds: parentDocIds(path, boxId),
+            archiveIndex,
+            ast,
+        };
+        aliasedDocs.set(id, meta);
+        if (ast.ID && ast.ID !== id) aliasedDocs.set(ast.ID, meta);
+    }
+    const docs = Array.from(new Map(Array.from(aliasedDocs.values()).map((doc) => [doc.path, doc])).values())
         .sort((a, b) => a.path.localeCompare(b.path));
+    const docsById = new Map<string, DocMeta>();
+    for (const doc of docs) {
+        docsById.set(doc.id, doc);
+        if (doc.ast.ID && doc.ast.ID !== doc.id) docsById.set(doc.ast.ID, doc);
+    }
 
     return { boxes, docs, docsById, docSortByBox, requiresMarkdown };
 }
@@ -334,11 +378,9 @@ function applyImportedMetadata(
 /**
  * Enhanced SiYuan package import.
  *
- * The original, battle-tested streaming importer remains the data plane. This wrapper
- * reads only SiYuan metadata before import and restores information that was previously
- * discarded: notebook/document order, notebook/document emoji icons and raw HTML/iframe
- * fidelity. Packages containing HTML or iframe nodes automatically use Markdown because
- * Tiptap's schema intentionally cannot store arbitrary HTML safely.
+ * The original streaming importer remains the data plane. This wrapper reads bounded
+ * metadata before import and restores information it previously discarded: notebook /
+ * document order, notebook / document emoji icons and raw HTML / iframe fidelity.
  */
 export async function importSiyuanPackageFromZipFile(
     zipFilePath: string,
@@ -352,12 +394,10 @@ export async function importSiyuanPackageFromZipFile(
         contentFormat: forceMarkdown ? "markdown" : params.contentFormat,
     });
 
-    const metadataWarnings = applyImportedMetadata(metadata, result, params, existingNotebookIds);
     const warnings = new Set(result.warnings || []);
-    for (const warning of metadataWarnings) warnings.add(warning);
+    for (const warning of applyImportedMetadata(metadata, result, params, existingNotebookIds)) warnings.add(warning);
     if (forceMarkdown) {
         warnings.add("检测到 HTML 或 iframe 内容，已自动使用 Markdown 模式以保留原始结构并安全预览。");
     }
-
     return { ...result, warnings: [...warnings].sort((a, b) => a.localeCompare(b)) };
 }
