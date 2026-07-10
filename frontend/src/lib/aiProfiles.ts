@@ -29,13 +29,13 @@ const BASE_PATH = "/user-preferences/ai-profiles";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = localStorage.getItem("nowen-token") || "";
+  const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
   const response = await fetch(`${getBaseUrl()}${BASE_PATH}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
+    headers,
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
