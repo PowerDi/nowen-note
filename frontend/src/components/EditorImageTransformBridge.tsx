@@ -53,6 +53,13 @@ function findCompactMobileSheet(): HTMLElement | null {
   );
 }
 
+export function findImageTransformWrapper(dom: HTMLElement | null): HTMLElement | null {
+  if (!dom) return null;
+  if (dom.classList.contains("resizable-image-wrapper")) return dom;
+  return dom.querySelector<HTMLElement>(".resizable-image-wrapper")
+    || dom.closest<HTMLElement>(".resizable-image-wrapper");
+}
+
 function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileSheet"> | null {
   const editorDom = document.querySelector<HTMLElement>('.ProseMirror[contenteditable="true"]');
   const editor = (editorDom as (HTMLElement & { editor?: TiptapEditorLike }) | null)?.editor;
@@ -62,8 +69,8 @@ function selectedImageTarget(): Omit<ImageTarget, "desktopToolbar" | "mobileShee
   const pos = Number(selection.from);
   if (!Number.isFinite(pos)) return null;
   const dom = editor.view.nodeDOM(pos) as HTMLElement | null;
-  const wrapper = dom?.closest?.(".resizable-image-wrapper") as HTMLElement | null || dom;
-  if (!(wrapper instanceof HTMLElement)) return null;
+  const wrapper = findImageTransformWrapper(dom);
+  if (!wrapper) return null;
   return {
     editor,
     pos,
@@ -106,6 +113,21 @@ function syncAllImageWrappers(): void {
       normalizeImageFlipX(desc.node.attrs?.flipX),
     );
   });
+}
+
+export function updateImageAttributesAt(
+  editor: Pick<TiptapEditorLike, "state" | "view">,
+  pos: number,
+  attrs: Record<string, unknown>,
+): boolean {
+  const node = editor.state.doc.nodeAt(pos);
+  if (node?.type?.name !== "image") return false;
+  const transaction = editor.state.tr.setNodeMarkup(pos, undefined, {
+    ...node.attrs,
+    ...attrs,
+  });
+  editor.view.dispatch(transaction);
+  return true;
 }
 
 function positionDesktopToolbar(toolbar: HTMLElement, wrapper: HTMLElement): void {
@@ -263,12 +285,7 @@ export default function EditorImageTransformBridge() {
   const update = useCallback((attrs: Record<string, unknown>) => {
     const current = targetRef.current;
     if (!current) return;
-    current.editor
-      .chain()
-      .focus()
-      .setNodeSelection(current.pos)
-      .updateAttributes("image", attrs)
-      .run();
+    updateImageAttributesAt(current.editor, current.pos, attrs);
     requestAnimationFrame(reconcile);
   }, [reconcile]);
 

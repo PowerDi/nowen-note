@@ -61,7 +61,10 @@ export const tiptapExtensions = [
       rel: "noopener noreferrer nofollow",
     },
   }),
-  Image.configure({ inline: false, allowBase64: true }),
+  // 与 TiptapEditor 保持一致：图片是 inline 节点，必须位于 paragraph/listItem
+  // 等 inlineContent 容器内。否则 repairTiptapJson 会保留历史 doc > image 结构，
+  // 主编辑器加载后任意 transaction 都会触发 contentMatchAt 崩溃。
+  Image.configure({ inline: true, allowBase64: true }),
   CodeBlockLowlight.configure({ lowlight }),
   Underline,
   Highlight.configure({ multicolor: true }),

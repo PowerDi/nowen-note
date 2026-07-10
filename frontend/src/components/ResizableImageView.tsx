@@ -1,6 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NodeViewWrapper, NodeViewProps } from "@tiptap/react";
 import { resolveAttachmentUrl, getServerUrl } from "@/lib/api";
+import {
+  getPersistentImageTransform,
+  normalizeImageFlipX,
+  normalizeImageRotation,
+} from "@/lib/imageNodeTransformBootstrap";
 
 /**
  * 判断是否为本应用的附件路径（/api/attachments/xxx）。
@@ -63,6 +68,9 @@ export function ResizableImageView(props: NodeViewProps) {
   const { node, updateAttributes, selected, editor } = props;
   const { src, alt, title } = node.attrs as { src?: string; alt?: string; title?: string };
   const initialWidth = (node.attrs as { width?: number | string | null }).width ?? null;
+  const rotation = normalizeImageRotation(node.attrs.rotation);
+  const flipX = normalizeImageFlipX(node.attrs.flipX);
+  const persistentTransform = getPersistentImageTransform(rotation, flipX);
 
   const imgRef = useRef<HTMLImageElement | null>(null);
   const wrapperRef = useRef<HTMLSpanElement | null>(null);
@@ -301,6 +309,8 @@ export function ResizableImageView(props: NodeViewProps) {
       as="span"
       // data-drag-handle 让 ProseMirror 把整个 wrapper 认作可拖动（保留原生拖拽移动能力）
       data-drag-handle
+      data-image-rotation={rotation}
+      data-image-flip-x={flipX ? "true" : "false"}
       className="resizable-image-wrapper"
       // display:inline-block 让尺寸随图片走；my-4 mx-auto 保留原扩展的版式
       style={{
@@ -316,6 +326,9 @@ export function ResizableImageView(props: NodeViewProps) {
         outline: selected ? "2px solid #3b82f6" : "none",
         outlineOffset: 2,
         borderRadius: 8,
+        transform: persistentTransform || undefined,
+        transformOrigin: "center center",
+        transition: "transform 160ms ease",
       }}
       ref={wrapperRef}
     >
