@@ -14,6 +14,26 @@ const habits = new Hono();
 
 type HabitStatus = "success" | "partial" | "failure";
 
+type HabitRecord = {
+    id: string;
+    userId: string;
+    workspaceId: string | null;
+    title: string;
+    icon: string;
+    color: string;
+    sortOrder: number;
+    archivedAt: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+};
+
+type HabitListRecord = HabitRecord & {
+    creatorName?: string | null;
+    todayStatus?: HabitStatus | null;
+    todayNote?: string | null;
+    todayCheckinDate?: string | null;
+};
+
 const STATUS_SET = new Set<HabitStatus>(["success", "partial", "failure"]);
 const ROLE_RANK: Record<string, number> = { viewer: 1, commenter: 2, editor: 3, admin: 4, owner: 5 };
 
@@ -35,15 +55,33 @@ function getLocalDateKey(date = new Date()): string {
     return `${y}-${m}-${d}`;
 }
 
-function normalizeCheckinDate(raw: unknown): string {
-    if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-        return getLocalDateKey();
-    }
-    return raw;
+function isValidDateKey(raw: unknown): raw is string {
+    if (typeof raw !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return false;
+    const [year, month, day] = raw.split("-").map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year
+        && parsed.getUTCMonth() === month - 1
+        && parsed.getUTCDate() === day;
 }
 
-function getQueryCheckinDate(c: Context): string {
+/** Missing dates mean today; malformed or impossible dates are rejected. */
+function normalizeCheckinDate(raw: unknown): string | null {
+    if (raw === undefined || raw === null || raw === "") return getLocalDateKey();
+    return isValidDateKey(raw) ? raw : null;
+}
+
+function getQueryCheckinDate(c: Context): string | null {
     return normalizeCheckinDate(c.req.query("checkinDate") ?? c.req.query("today"));
+}
+
+function invalidDate(c: Context) {
+    return c.json(
+        {
+            error: "checkinDate must be a valid calendar date in YYYY-MM-DD format",
+            code: "INVALID_DATE",
+        },
+        400,
+    );
 }
 
 function canCreateInWorkspace(workspaceId: string | null, userId: string): boolean {
@@ -52,20 +90,9 @@ function canCreateInWorkspace(workspaceId: string | null, userId: string): boole
     return !!role && (ROLE_RANK[role] ?? 0) >= ROLE_RANK.editor;
 }
 
-function getHabitOr404(id: string) {
+function getHabitOr404(id: string): HabitRecord | undefined {
     const db = getDb();
-    return db.prepare("SELECT * FROM habits WHERE id = ?").get(id) as
-        | {
-            id: string;
-            userId: string;
-            workspaceId: string | null;
-            title: string;
-            icon: string;
-            color: string;
-            sortOrder: number;
-            archivedAt: string | null;
-        }
-        | undefined;
+    return db.prepare("SELECT * FROM habits WHERE id = ?").get(id) as HabitRecord | undefined;
 }
 
 function rejectDisabledHabitFeature(c: Context, workspaceId: string | null) {
@@ -87,6 +114,7 @@ habits.get("/", requireWorkspaceFeature("tasks"), (c) => {
     const userId = c.req.header("X-User-Id")!;
     const includeArchived = c.req.query("includeArchived") === "1";
     const today = getQueryCheckinDate(c);
+    if (!today) return invalidDate(c);
 
     const scope = resolveHabitScope(c, userId);
     if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
@@ -103,7 +131,7 @@ habits.get("/", requireWorkspaceFeature("tasks"), (c) => {
     LEFT JOIN habit_checkins todayCheckin
       ON todayCheckin.habitId = habits.id AND todayCheckin.checkinDate = ?
     WHERE `;
-    const params: any[] = [today];
+    const params: unknown[] = [today];
     if (scope.scope === "workspace") {
         sql += "habits.workspaceId = ?";
         params.push(scope.workspaceId);
@@ -114,21 +142,27 @@ habits.get("/", requireWorkspaceFeature("tasks"), (c) => {
     if (!includeArchived) sql += " AND habits.archivedAt IS NULL";
     sql += " ORDER BY habits.sortOrder ASC, habits.createdAt DESC";
 
-    const rows = db.prepare(sql).all(...params);
-    return c.json(rows);
+    const rows = db.prepare(sql).all(...params) as HabitListRecord[];
+    return c.json(rows.map((row) => ({
+        ...row,
+        canManage: canManageResource(row.userId, row.workspaceId, userId),
+    })));
 });
 
 habits.get("/stats", requireWorkspaceFeature("tasks"), (c) => {
     const db = getDb();
     const userId = c.req.header("X-User-Id")!;
-    const includeArchived = c.req.query("includeArchived") === "1";
+    // Statistics represent historical progress. Archived habits remain included by default;
+    // callers may explicitly request active-only statistics with includeArchived=0.
+    const includeArchived = c.req.query("includeArchived") !== "0";
     const today = getQueryCheckinDate(c);
+    if (!today) return invalidDate(c);
 
     const scope = resolveHabitScope(c, userId);
     if (scope.error) return c.json({ error: scope.error, code: "FORBIDDEN" }, 403);
 
     const whereParts: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     if (scope.scope === "workspace") {
         whereParts.push("h.workspaceId = ?");
         params.push(scope.workspaceId);
@@ -149,7 +183,13 @@ habits.get("/stats", requireWorkspaceFeature("tasks"), (c) => {
     FROM habits h
     LEFT JOIN habit_checkins hc ON hc.habitId = h.id
     WHERE ${whereSql}
-  `).get(...params) as any;
+  `).get(...params) as {
+        totalCheckins?: number | null;
+        checkinDays?: number | null;
+        successCount?: number | null;
+        partialCount?: number | null;
+        failureCount?: number | null;
+    } | undefined;
 
     const streakRows = db.prepare(`
     SELECT DISTINCT hc.checkinDate AS checkinDate
@@ -202,8 +242,13 @@ habits.post("/", requireWorkspaceFeature("tasks"), async (c) => {
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(id, userId, scope.workspaceId, title, icon, color, sortOrder);
 
-    const created = db.prepare("SELECT * FROM habits WHERE id = ?").get(id);
-    return c.json(created, 201);
+    const created = db.prepare(`
+      SELECT habits.*, users.username AS creatorName
+      FROM habits
+      LEFT JOIN users ON users.id = habits.userId
+      WHERE habits.id = ?
+    `).get(id) as HabitListRecord;
+    return c.json({ ...created, canManage: true }, 201);
 });
 
 habits.get("/:id/checkins", (c) => {
@@ -220,8 +265,13 @@ habits.get("/:id/checkins", (c) => {
 
     const from = c.req.query("from");
     const to = c.req.query("to");
+    if ((from && !isValidDateKey(from)) || (to && !isValidDateKey(to))) return invalidDate(c);
+    if (from && to && from > to) {
+        return c.json({ error: "from must not be later than to", code: "INVALID_DATE_RANGE" }, 400);
+    }
+
     let sql = "SELECT * FROM habit_checkins WHERE habitId = ?";
-    const params: any[] = [id];
+    const params: unknown[] = [id];
     if (from) {
         sql += " AND checkinDate >= ?";
         params.push(from);
@@ -254,24 +304,25 @@ habits.post("/:id/checkins", async (c) => {
     }
 
     const checkinDate = normalizeCheckinDate(body.checkinDate);
+    if (!checkinDate) return invalidDate(c);
     const note = typeof body.note === "string" ? body.note : "";
     const existing = db.prepare(
-        "SELECT id FROM habit_checkins WHERE habitId = ? AND checkinDate = ?"
+        "SELECT id FROM habit_checkins WHERE habitId = ? AND checkinDate = ?",
     ).get(id, checkinDate) as { id: string } | undefined;
 
     if (existing) {
         db.prepare(
-            "UPDATE habit_checkins SET status = ?, note = ?, updatedAt = datetime('now') WHERE id = ?"
-        ).run(status, note, existing.id);
+            "UPDATE habit_checkins SET userId = ?, status = ?, note = ?, updatedAt = datetime('now') WHERE id = ?",
+        ).run(userId, status, note, existing.id);
     } else {
         db.prepare(`
       INSERT INTO habit_checkins (id, habitId, userId, workspaceId, checkinDate, status, note)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(crypto.randomUUID(), id, habit.userId, habit.workspaceId, checkinDate, status, note);
+    `).run(crypto.randomUUID(), id, userId, habit.workspaceId, checkinDate, status, note);
     }
 
     const row = db.prepare(
-        "SELECT * FROM habit_checkins WHERE habitId = ? AND checkinDate = ?"
+        "SELECT * FROM habit_checkins WHERE habitId = ? AND checkinDate = ?",
     ).get(id, checkinDate);
     return c.json(row, existing ? 200 : 201);
 });
