@@ -1,450 +1,483 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { Bot, Loader2, Check, AlertCircle, RefreshCw, Eye, EyeOff, ChevronDown, Zap, CircleCheck } from "lucide-react";
-import { useTranslation } from "react-i18next";
-import { api } from "@/lib/api";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertCircle,
+  Bot,
+  Check,
+  CheckCircle2,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Save,
+  Trash2,
+  Zap,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface AISettingsState {
-  ai_provider: string;
-  ai_api_url: string;
-  ai_api_key: string;
-  ai_model: string;
-  ai_api_key_set: boolean;
-}
+import {
+  aiProfiles,
+  emitAIProfilesChanged,
+  type AIModelOption,
+  type AIProfile,
+  type AIProfileDraft,
+} from "@/lib/aiProfiles";
 
 interface ProviderPreset {
   id: string;
   name: string;
   desc: string;
-  models: string;
   url: string;
   defaultModel: string;
   needsKey: boolean;
-  color: string; // gradient color
+  color: string;
 }
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
-  {
-    id: "qwen",
-    name: "通义千问",
-    desc: "ai.qwenDesc",
-    models: "Qwen-Turbo / Qwen-Plus / Qwen-Max",
-    url: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-    defaultModel: "qwen-plus",
-    needsKey: true,
-    color: "from-violet-500 to-blue-500",
-  },
-  {
-    id: "openai",
-    name: "OpenAI",
-    desc: "ai.openaiDesc",
-    models: "GPT-4o / GPT-4o-mini",
-    url: "https://api.openai.com/v1",
-    defaultModel: "gpt-4o-mini",
-    needsKey: true,
-    color: "from-emerald-500 to-teal-500",
-  },
-  {
-    id: "gemini",
-    name: "Google Gemini",
-    desc: "ai.geminiDesc",
-    models: "gemini-2.0-flash / gemini-2.5-pro-preview",
-    url: "https://generativelanguage.googleapis.com/v1beta/openai",
-    defaultModel: "gemini-2.0-flash",
-    needsKey: true,
-    color: "from-blue-500 to-cyan-500",
-  },
-  {
-    id: "deepseek",
-    name: "DeepSeek",
-    desc: "ai.deepseekDesc",
-    models: "DeepSeek-V3 / DeepSeek-R1",
-    url: "https://api.deepseek.com/v1",
-    defaultModel: "deepseek-chat",
-    needsKey: true,
-    color: "from-sky-500 to-indigo-500",
-  },
-  {
-    id: "doubao",
-    name: "豆包（火山引擎）",
-    desc: "ai.doubaoDesc",
-    models: "Doubao-1.5-lite / Doubao-1.5-pro",
-    url: "https://ark.cn-beijing.volces.com/api/v3",
-    defaultModel: "doubao-1.5-pro-32k",
-    needsKey: true,
-    color: "from-orange-500 to-pink-500",
-  },
-  {
-    id: "custom",
-    name: "自定义 API",
-    desc: "ai.customApiDesc",
-    models: "OpenAI 兼容接口",
-    url: "",
-    defaultModel: "",
-    needsKey: true,
-    color: "from-purple-500 to-indigo-500",
-  },
-  {
-    id: "ollama",
-    name: "Ollama",
-    desc: "ai.ollamaDesc",
-    models: "本地模型 · OpenAI 兼容接口",
-    url: "http://localhost:11434/v1",
-    defaultModel: "qwen2.5:7b",
-    needsKey: false,
-    color: "from-zinc-500 to-zinc-600",
-  },
+  { id: "qwen", name: "通义千问", desc: "DashScope OpenAI 兼容接口", url: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus", needsKey: true, color: "from-violet-500 to-blue-500" },
+  { id: "openai", name: "OpenAI", desc: "OpenAI 官方接口", url: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini", needsKey: true, color: "from-emerald-500 to-teal-500" },
+  { id: "gemini", name: "Google Gemini", desc: "Gemini OpenAI 兼容接口", url: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: "gemini-2.0-flash", needsKey: true, color: "from-blue-500 to-cyan-500" },
+  { id: "deepseek", name: "DeepSeek", desc: "DeepSeek 官方接口", url: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat", needsKey: true, color: "from-sky-500 to-indigo-500" },
+  { id: "doubao", name: "豆包（火山引擎）", desc: "火山方舟 OpenAI 兼容接口", url: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: "doubao-1.5-pro-32k", needsKey: true, color: "from-orange-500 to-pink-500" },
+  { id: "ollama", name: "Ollama", desc: "本地或局域网模型", url: "http://localhost:11434/v1", defaultModel: "qwen2.5:7b", needsKey: false, color: "from-zinc-500 to-zinc-700" },
+  { id: "custom", name: "自定义 API", desc: "任意 OpenAI 兼容服务", url: "", defaultModel: "", needsKey: true, color: "from-purple-500 to-indigo-500" },
 ];
 
+const EMPTY_DRAFT: AIProfileDraft = {
+  name: "",
+  provider: "openai",
+  apiUrl: "https://api.openai.com/v1",
+  apiKey: "",
+  model: "gpt-4o-mini",
+};
+
+function getCopy() {
+  const language = (localStorage.getItem("i18nextLng") || navigator.language || "").toLowerCase();
+  if (!language.startsWith("zh")) {
+    return {
+      title: "AI service profiles",
+      description: "Save multiple providers and switch them directly in AI Chat.",
+      profiles: "Saved profiles",
+      newProfile: "New profile",
+      profileName: "Profile name",
+      provider: "Provider",
+      apiUrl: "API URL",
+      apiKey: "API key",
+      model: "Model",
+      active: "Active",
+      activate: "Use this profile",
+      save: "Save profile",
+      delete: "Delete",
+      autoModels: "Models are fetched automatically after the URL and key are ready.",
+      fetching: "Fetching models…",
+      fetchModels: "Refresh models",
+      noModels: "No model list returned. You can still enter a model manually.",
+      saved: "Profile saved",
+      activated: "Profile activated",
+      deleteConfirm: "Delete this AI profile?",
+      atLeastOne: "At least one profile must remain.",
+      loadFailed: "Failed to load AI profiles",
+      nameRequired: "Enter a profile name",
+      keyConfigured: "Saved key",
+      customModel: "Enter model name",
+    };
+  }
+  return {
+    title: "AI 服务配置",
+    description: "保存多个 AI 服务，并可在 AI 问答标题栏直接切换。",
+    profiles: "已保存配置",
+    newProfile: "新建配置",
+    profileName: "配置名称",
+    provider: "服务商",
+    apiUrl: "API 地址",
+    apiKey: "API Key",
+    model: "模型",
+    active: "当前使用",
+    activate: "设为当前配置",
+    save: "保存配置",
+    delete: "删除",
+    autoModels: "API 地址和密钥就绪后会自动获取模型列表。",
+    fetching: "正在获取模型…",
+    fetchModels: "刷新模型",
+    noModels: "接口没有返回模型列表，仍可手动填写模型名称。",
+    saved: "配置已保存",
+    activated: "已切换当前配置",
+    deleteConfirm: "确定删除这个 AI 配置吗？",
+    atLeastOne: "至少需要保留一个配置。",
+    loadFailed: "AI 配置加载失败",
+    nameRequired: "请输入配置名称",
+    keyConfigured: "已保存密钥",
+    customModel: "手动输入模型名称",
+  };
+}
+
+function profileToDraft(profile: AIProfile): AIProfileDraft {
+  return {
+    name: profile.name,
+    provider: profile.provider,
+    apiUrl: profile.apiUrl,
+    apiKey: profile.apiKey,
+    model: profile.model,
+  };
+}
+
 export default function AISettingsPanel() {
-  const { t } = useTranslation();
-  const [settings, setSettings] = useState<AISettingsState>({
-    ai_provider: "openai", ai_api_url: "", ai_api_key: "", ai_model: "", ai_api_key_set: false,
-  });
-  const [localKey, setLocalKey] = useState("");
-  // 缓存每个服务商的 API Key，切换时不丢失
-  const [keyMap, setKeyMap] = useState<Record<string, string>>({});
-  const [showKey, setShowKey] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [saveMsg, setSaveMsg] = useState("");
-  const [models, setModels] = useState<{ id: string; name: string }[]>([]);
+  const copy = useMemo(getCopy, []);
+  const [profiles, setProfiles] = useState<AIProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<AIProfileDraft>(EMPTY_DRAFT);
+  const [models, setModels] = useState<AIModelOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [activating, setActivating] = useState(false);
   const [loadingModels, setLoadingModels] = useState(false);
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
-  const [dropdownDirection, setDropdownDirection] = useState<"down" | "up">("down");
-  const modelInputRef = useRef<HTMLInputElement>(null);
-  const [isConfigured, setIsConfigured] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [modelError, setModelError] = useState("");
+  const discoverySeq = useRef(0);
 
-  const loadSettings = useCallback(async () => {
+  const selectedProfile = profiles.find((profile) => profile.id === selectedId) || null;
+  const preset = PROVIDER_PRESETS.find((item) => item.id === draft.provider) || PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1];
+  const needsKey = preset.needsKey;
+
+  const loadProfiles = useCallback(async (preferredId?: string) => {
+    setLoading(true);
     try {
-      const data = await api.getAISettings();
-      setSettings(data);
-      const serverKey = data.ai_api_key_set ? data.ai_api_key : "";
-      setLocalKey(serverKey);
-      // 初始化时将服务端返回的 key 存入缓存
-      if (serverKey) {
-        setKeyMap(prev => ({ ...prev, [data.ai_provider]: serverKey }));
+      const result = await aiProfiles.list();
+      setProfiles(result.profiles);
+      setActiveProfileId(result.activeProfileId);
+      const target = result.profiles.find((item) => item.id === preferredId)
+        || result.profiles.find((item) => item.id === result.activeProfileId)
+        || result.profiles[0];
+      if (target) {
+        setSelectedId(target.id);
+        setDraft(profileToDraft(target));
       }
-      setIsConfigured(!!data.ai_api_url && (data.ai_api_key_set || !getPreset(data.ai_provider)?.needsKey));
-    } catch { /* ignore */ }
-  }, []);
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
+    } finally {
+      setLoading(false);
+    }
+  }, [copy.loadFailed]);
 
-  useEffect(() => { loadSettings(); }, [loadSettings]);
+  useEffect(() => { void loadProfiles(); }, [loadProfiles]);
 
-  function getPreset(providerId: string): ProviderPreset | undefined {
-    return PROVIDER_PRESETS.find(p => p.id === providerId);
+  const discoverModels = useCallback(async (silent = false) => {
+    const seq = ++discoverySeq.current;
+    if (!draft.apiUrl.trim()) {
+      setModels([]);
+      setModelError("");
+      return;
+    }
+    if (needsKey && !draft.apiKey.trim() && !selectedProfile?.apiKeySet) {
+      setModels([]);
+      setModelError("");
+      return;
+    }
+
+    setLoadingModels(true);
+    if (!silent) setModelError("");
+    try {
+      const result = await aiProfiles.discoverModels(draft, selectedId || undefined);
+      if (seq !== discoverySeq.current) return;
+      setModels(result.models);
+      setModelError(result.models.length === 0 ? copy.noModels : "");
+      if (result.models.length > 0 && !draft.model) {
+        setDraft((current) => ({ ...current, model: result.models[0].id }));
+      }
+    } catch (error) {
+      if (seq !== discoverySeq.current) return;
+      setModels([]);
+      setModelError((error as Error)?.message || copy.noModels);
+    } finally {
+      if (seq === discoverySeq.current) setLoadingModels(false);
+    }
+  }, [copy.noModels, draft, needsKey, selectedId, selectedProfile?.apiKeySet]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void discoverModels(true), 700);
+    return () => window.clearTimeout(timer);
+  }, [draft.provider, draft.apiUrl, draft.apiKey, selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectProfile = (profile: AIProfile) => {
+    setSelectedId(profile.id);
+    setDraft(profileToDraft(profile));
+    setModels([]);
+    setModelError("");
+    setMessage(null);
+    setModelOpen(false);
+  };
+
+  const startNew = () => {
+    setSelectedId(null);
+    setDraft({ ...EMPTY_DRAFT, name: profiles.length ? `AI ${profiles.length + 1}` : "默认配置" });
+    setModels([]);
+    setModelError("");
+    setMessage(null);
+  };
+
+  const changeProvider = (providerId: string) => {
+    const next = PROVIDER_PRESETS.find((item) => item.id === providerId);
+    if (!next) return;
+    setDraft((current) => ({
+      ...current,
+      provider: providerId,
+      apiUrl: next.url,
+      apiKey: "",
+      model: next.defaultModel,
+    }));
+    setModels([]);
+    setModelError("");
+  };
+
+  const saveProfile = async () => {
+    if (!draft.name.trim()) {
+      setMessage({ type: "error", text: copy.nameRequired });
+      return;
+    }
+    setSaving(true);
+    setMessage(null);
+    try {
+      const result = selectedId
+        ? await aiProfiles.update(selectedId, draft)
+        : await aiProfiles.create(draft, true);
+      const id = result.profile.id;
+      await loadProfiles(id);
+      emitAIProfilesChanged(result.activeProfileId);
+      setMessage({ type: "success", text: copy.saved });
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const activateProfile = async () => {
+    if (!selectedId || selectedId === activeProfileId) return;
+    setActivating(true);
+    setMessage(null);
+    try {
+      const result = await aiProfiles.activate(selectedId);
+      setActiveProfileId(result.activeProfileId);
+      emitAIProfilesChanged(result.activeProfileId);
+      setMessage({ type: "success", text: copy.activated });
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
+    } finally {
+      setActivating(false);
+    }
+  };
+
+  const deleteProfile = async () => {
+    if (!selectedId) return;
+    if (profiles.length <= 1) {
+      setMessage({ type: "error", text: copy.atLeastOne });
+      return;
+    }
+    if (!window.confirm(copy.deleteConfirm)) return;
+    setSaving(true);
+    try {
+      const result = await aiProfiles.remove(selectedId);
+      await loadProfiles(result.activeProfileId);
+      emitAIProfilesChanged(result.activeProfileId);
+    } catch (error) {
+      setMessage({ type: "error", text: (error as Error)?.message || copy.loadFailed });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="flex min-h-[320px] items-center justify-center text-zinc-400"><Loader2 className="animate-spin" size={22} /></div>;
   }
 
-  const handleProviderChange = (provider: string) => {
-    const preset = getPreset(provider);
-    if (!preset) return;
-    // 先把当前服务商的 key 存入缓存
-    setKeyMap(prev => ({ ...prev, [settings.ai_provider]: localKey }));
-    setSettings(prev => ({
-      ...prev,
-      ai_provider: provider,
-      ai_api_url: preset.url,
-      ai_model: preset.defaultModel,
-    }));
-    // 恢复目标服务商之前缓存的 key
-    if (preset.needsKey) {
-      setLocalKey(keyMap[provider] || "");
-    } else {
-      setLocalKey("");
-    }
-    setTestResult(null);
-  };
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    setSaveMsg("");
-    try {
-      const payload: any = {
-        ai_provider: settings.ai_provider,
-        ai_api_url: settings.ai_api_url,
-        ai_model: settings.ai_model,
-      };
-      if (localKey && !localKey.includes("****")) {
-        payload.ai_api_key = localKey;
-      }
-      const data = await api.updateAISettings(payload);
-      setSettings(data);
-      setIsConfigured(true);
-      setSaveMsg(t("ai.saveSuccess"));
-      setTimeout(() => setSaveMsg(""), 2000);
-    } catch (err: any) {
-      setSaveMsg(err.message || t("ai.saveFailed"));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleTest = async () => {
-    setIsTesting(true);
-    setTestResult(null);
-    try {
-      const payload: any = {
-        ai_provider: settings.ai_provider,
-        ai_api_url: settings.ai_api_url,
-        ai_model: settings.ai_model,
-      };
-      if (localKey && !localKey.includes("****")) payload.ai_api_key = localKey;
-      await api.updateAISettings(payload);
-      const result = await api.testAIConnection();
-      setTestResult({ success: result.success, message: result.message || result.error || "" });
-    } catch (err: any) {
-      setTestResult({ success: false, message: err.message || t("ai.testFailed") });
-    } finally {
-      setIsTesting(false);
-    }
-  };
-
-  const fetchModels = async () => {
-    setLoadingModels(true);
-    try {
-      const payload: any = {
-        ai_provider: settings.ai_provider,
-        ai_api_url: settings.ai_api_url,
-        ai_model: settings.ai_model,
-      };
-      if (localKey && !localKey.includes("****")) payload.ai_api_key = localKey;
-      await api.updateAISettings(payload);
-      const data = await api.getAIModels();
-      setModels(data.models || []);
-      if (data.models?.length) {
-        computeDropdownDirection();
-        setModelDropdownOpen(true);
-      }
-    } catch { /* ignore */ }
-    setLoadingModels(false);
-  };
-
-  // 根据输入框位置判断下拉向上还是向下弹出
-  const computeDropdownDirection = () => {
-    const el = modelInputRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    // 下拉最大高度预估 240px，如果下方不够且上方更宽敞，则向上弹
-    if (spaceBelow < 240 && spaceAbove > spaceBelow) {
-      setDropdownDirection("up");
-    } else {
-      setDropdownDirection("down");
-    }
-  };
-
-  const currentPreset = getPreset(settings.ai_provider);
-  const needsKey = currentPreset?.needsKey ?? true;
-  const apiUrlPlaceholder = currentPreset?.id === "custom" ? "https://your-api.example.com/v1" : currentPreset?.url || "https://api.openai.com/v1";
-  const modelPlaceholder = currentPreset?.id === "custom" ? "your-model" : currentPreset?.defaultModel || "gpt-4o-mini";
-
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100 mb-1">{t("ai.title")}</h3>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("ai.description")}</p>
-        </div>
-        {isConfigured && (
-          <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
-            <CircleCheck size={14} />
-            {t("ai.configured")}
-          </span>
-        )}
-      </div>
-
-      {/* Provider 卡片列表 */}
-      <div className="space-y-2">
-        <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("ai.provider")}</label>
-        <div className="space-y-2">
-          {PROVIDER_PRESETS.map(p => {
-            const isSelected = settings.ai_provider === p.id;
-            return (
-              <button
-                key={p.id}
-                onClick={() => handleProviderChange(p.id)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 transition-all text-left group",
-                  isSelected
-                    ? "border-accent-primary bg-accent-primary/5 dark:bg-accent-primary/10"
-                    : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
-                )}
-              >
-                {/* Provider icon */}
-                <div className={cn(
-                  "w-9 h-9 rounded-lg flex items-center justify-center shrink-0 bg-gradient-to-br text-white",
-                  p.color
-                )}>
-                  <Zap size={16} />
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={cn(
-                      "text-sm font-semibold",
-                      isSelected ? "text-accent-primary" : "text-zinc-800 dark:text-zinc-200"
-                    )}>
-                      {p.name}
-                    </span>
-                    <span className="text-[10px] text-zinc-400 dark:text-zinc-500">{t(p.desc)}</span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-0.5 truncate">
-                    {p.models}
-                  </p>
-                </div>
-
-                {/* 选中标记 */}
-                {isSelected && (
-                  <CircleCheck size={18} className="text-accent-primary shrink-0" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 配置区域 */}
-      <div className="space-y-4 p-4 rounded-xl bg-zinc-50 dark:bg-zinc-800/30 border border-zinc-200 dark:border-zinc-800">
-        <div className="flex items-center gap-2 mb-1">
-          <div className={cn("w-6 h-6 rounded-md flex items-center justify-center bg-gradient-to-br text-white", currentPreset?.color || "from-zinc-500 to-zinc-600")}>
-            <Zap size={12} />
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white shadow-sm">
+            <Bot size={18} />
           </div>
-          <span className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-            {currentPreset?.name || settings.ai_provider}
-          </span>
-          <span className="text-[10px] text-zinc-400">{t("ai.configLabel")}</span>
+          <div>
+            <h3 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{copy.title}</h3>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">{copy.description}</p>
+          </div>
         </div>
+      </div>
 
-        {/* API URL */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("ai.apiUrl")}</label>
-          <input
-            type="text"
-            value={settings.ai_api_url}
-            onChange={(e) => setSettings(prev => ({ ...prev, ai_api_url: e.target.value }))}
-            placeholder={apiUrlPlaceholder}
-            className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400"
-          />
-        </div>
+      <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="rounded-xl border border-zinc-200 bg-zinc-50/70 p-2 dark:border-zinc-800 dark:bg-zinc-900/30">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{copy.profiles}</span>
+            <button type="button" onClick={startNew} className="rounded-md p-1.5 text-zinc-500 hover:bg-white hover:text-accent-primary dark:hover:bg-zinc-800" title={copy.newProfile}>
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="max-h-[430px] space-y-1 overflow-auto">
+            {profiles.map((profile) => {
+              const active = profile.id === activeProfileId;
+              const selected = profile.id === selectedId;
+              return (
+                <button
+                  key={profile.id}
+                  type="button"
+                  onClick={() => selectProfile(profile)}
+                  className={cn(
+                    "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    selected
+                      ? "border-accent-primary/50 bg-white shadow-sm dark:bg-zinc-900"
+                      : "border-transparent hover:bg-white dark:hover:bg-zinc-800/70",
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-800 dark:text-zinc-200">{profile.name}</span>
+                    {active && <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />}
+                  </div>
+                  <div className="mt-1 truncate text-[10px] text-zinc-400">{profile.model || profile.provider}</div>
+                </button>
+              );
+            })}
+            {selectedId === null && (
+              <div className="rounded-lg border border-dashed border-accent-primary/50 bg-accent-primary/5 px-3 py-2.5 text-sm font-medium text-accent-primary">
+                {copy.newProfile}
+              </div>
+            )}
+          </div>
+        </aside>
 
-        {/* API Key */}
-        {needsKey && (
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("ai.apiKey")}</label>
-            <div className="relative">
+        <section className="space-y-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.profileName}</span>
               <input
-                type={showKey ? "text" : "password"}
-                value={localKey}
-                onChange={(e) => { setLocalKey(e.target.value); setTestResult(null); }}
-                placeholder={settings.ai_api_key_set ? t("ai.apiKeySet") : "sk-..."}
-                className="w-full px-3 py-2 pr-10 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400"
+                value={draft.name}
+                onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
               />
-              <button
-                onClick={() => setShowKey(!showKey)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
-              >
-                {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </label>
+
+            <label className="space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.provider}</span>
+              <div className="relative">
+                <select
+                  value={draft.provider}
+                  onChange={(event) => changeProvider(event.target.value)}
+                  className="w-full appearance-none rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-8 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                >
+                  {PROVIDER_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+                <ChevronDown size={14} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              </div>
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/40">
+            <div className={cn("flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br text-white", preset.color)}><Zap size={13} /></div>
+            <div className="min-w-0">
+              <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-200">{preset.name}</div>
+              <div className="truncate text-[10px] text-zinc-400">{preset.desc}</div>
+            </div>
+            {selectedId === activeProfileId && selectedId !== null && (
+              <span className="ml-auto rounded-full bg-emerald-500/10 px-2 py-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">{copy.active}</span>
+            )}
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.apiUrl}</span>
+            <input
+              value={draft.apiUrl}
+              onChange={(event) => setDraft((current) => ({ ...current, apiUrl: event.target.value }))}
+              placeholder="https://api.example.com/v1"
+              className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </label>
+
+          {needsKey && (
+            <label className="block space-y-1.5">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.apiKey}</span>
+              <div className="relative">
+                <input
+                  type={showKey ? "text" : "password"}
+                  value={draft.apiKey}
+                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                  placeholder={selectedProfile?.apiKeySet ? copy.keyConfigured : "sk-..."}
+                  className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-10 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
+                />
+                <button type="button" onClick={() => setShowKey((value) => !value)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200">
+                  {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </label>
+          )}
+
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{copy.model}</span>
+              <button type="button" onClick={() => void discoverModels(false)} disabled={loadingModels || !draft.apiUrl} className="inline-flex items-center gap-1 text-[10px] text-accent-primary disabled:opacity-40">
+                {loadingModels ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                {copy.fetchModels}
               </button>
             </div>
-          </div>
-        )}
-
-        {/* Model */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t("ai.model")}</label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
+            <div className="relative">
               <input
-                ref={modelInputRef}
-                type="text"
-                value={settings.ai_model}
-                onChange={(e) => setSettings(prev => ({ ...prev, ai_model: e.target.value }))}
-                onFocus={() => {
-                  if (models.length > 0) {
-                    computeDropdownDirection();
-                    setModelDropdownOpen(true);
-                  }
-                }}
-                placeholder={modelPlaceholder}
-                className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-sm text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-accent-primary/40 focus:border-accent-primary outline-none transition-all placeholder:text-zinc-400"
+                value={draft.model}
+                onChange={(event) => setDraft((current) => ({ ...current, model: event.target.value }))}
+                onFocus={() => models.length > 0 && setModelOpen(true)}
+                placeholder={preset.defaultModel || copy.customModel}
+                className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 pr-9 text-sm outline-none focus:border-accent-primary focus:ring-2 focus:ring-accent-primary/20 dark:border-zinc-700 dark:bg-zinc-900"
               />
-              {modelDropdownOpen && models.length > 0 && (
+              {models.length > 0 && (
+                <button type="button" onClick={() => setModelOpen((value) => !value)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400"><ChevronDown size={14} /></button>
+              )}
+              {modelOpen && models.length > 0 && (
                 <>
-                  <div className="fixed inset-0 z-40" onClick={() => setModelDropdownOpen(false)} />
-                  <div
-                    className={cn(
-                      "absolute z-50 left-0 w-full max-h-60 overflow-auto bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl",
-                      dropdownDirection === "down" ? "top-full mt-1" : "bottom-full mb-1"
-                    )}
-                  >
-                    {models.map(m => (
-                      <button
-                        key={m.id}
-                        onClick={() => { setSettings(prev => ({ ...prev, ai_model: m.id })); setModelDropdownOpen(false); }}
-                        className="w-full text-left px-3 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors"
-                      >
-                        {m.name}
+                  <button type="button" aria-label="close" className="fixed inset-0 z-40 cursor-default" onClick={() => setModelOpen(false)} />
+                  <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                    {models.map((model) => (
+                      <button key={model.id} type="button" onClick={() => { setDraft((current) => ({ ...current, model: model.id })); setModelOpen(false); }} className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-zinc-700 hover:bg-accent-primary/5 hover:text-accent-primary dark:text-zinc-200">
+                        <span className="truncate">{model.name}</span>
+                        {draft.model === model.id && <Check size={13} className="shrink-0" />}
                       </button>
                     ))}
                   </div>
                 </>
               )}
             </div>
-            <button
-              onClick={fetchModels}
-              disabled={loadingModels || !settings.ai_api_url}
-              className="flex items-center gap-1.5 px-3 py-2 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-600 dark:text-zinc-400 hover:border-accent-primary/50 hover:text-accent-primary transition-colors disabled:opacity-40 bg-white dark:bg-zinc-900"
-            >
-              {loadingModels ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-              {t("ai.fetchModels")}
-            </button>
+            <div className="min-h-4 text-[10px]">
+              {loadingModels ? <span className="text-zinc-400">{copy.fetching}</span>
+                : modelError ? <span className="text-amber-600 dark:text-amber-400">{modelError}</span>
+                : <span className="text-zinc-400">{copy.autoModels}</span>}
+            </div>
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+            <button type="button" onClick={() => void saveProfile()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg bg-accent-primary px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-primary/90 disabled:opacity-50">
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}
+              {copy.save}
+            </button>
+            {selectedId && selectedId !== activeProfileId && (
+              <button type="button" onClick={() => void activateProfile()} disabled={activating} className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/30 px-4 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-500/5 disabled:opacity-50 dark:text-emerald-400">
+                {activating ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                {copy.activate}
+              </button>
+            )}
+            {selectedId && (
+              <button type="button" onClick={() => void deleteProfile()} disabled={saving} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-red-500 hover:bg-red-500/5 disabled:opacity-50">
+                <Trash2 size={13} />
+                {copy.delete}
+              </button>
+            )}
+            {message && (
+              <span className={cn("ml-auto inline-flex items-center gap-1 text-xs", message.type === "success" ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
+                {message.type === "success" ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />}
+                {message.text}
+              </span>
+            )}
+          </div>
+        </section>
       </div>
-
-      {/* 操作按钮 */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex items-center gap-1.5 px-4 py-1.5 bg-accent-primary hover:bg-accent-primary/90 text-white rounded-lg text-xs font-medium transition-all disabled:opacity-40"
-        >
-          {isSaving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-          {t("ai.saveSettings")}
-        </button>
-
-        <button
-          onClick={handleTest}
-          disabled={isTesting || !settings.ai_api_url}
-          className="flex items-center gap-1.5 px-4 py-1.5 border border-zinc-200 dark:border-zinc-800 rounded-lg text-xs font-medium text-zinc-700 dark:text-zinc-300 hover:border-accent-primary/50 transition-all disabled:opacity-40"
-        >
-          {isTesting ? <Loader2 size={14} className="animate-spin" /> : <Bot size={14} />}
-          {t("ai.testConnection")}
-        </button>
-
-        {saveMsg && (
-          <span className={cn("text-xs", saveMsg === t("ai.saveSuccess") ? "text-emerald-500" : "text-red-500")}>
-            {saveMsg}
-          </span>
-        )}
-      </div>
-
-      {/* 测试结果 */}
-      {testResult && (
-        <div className={cn(
-          "flex items-center gap-2 p-3 rounded-lg text-sm",
-          testResult.success
-            ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-            : "bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400"
-        )}>
-          {testResult.success ? <Check size={16} /> : <AlertCircle size={16} />}
-          {testResult.message}
-        </div>
-      )}
     </div>
   );
 }
