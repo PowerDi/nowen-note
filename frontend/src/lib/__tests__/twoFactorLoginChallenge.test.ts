@@ -35,6 +35,18 @@ describe("twoFactorLoginChallenge", () => {
     expect(sessionStorage.getItem("nowen.twoFactorLoginChallenge")).not.toContain("code");
   });
 
+  it("never persists a challenge longer than five minutes", () => {
+    const challenge = saveTwoFactorLoginChallenge({
+      ticket: "overlong-ticket",
+      username: "alice",
+      verifyUrl: "/api/auth/2fa/verify",
+      expiresInSeconds: 3_600,
+    }, 5_000);
+
+    expect(challenge?.expiresAt).toBe(305_000);
+    expect(readTwoFactorLoginChallenge(305_001)).toBeNull();
+  });
+
   it("clears expired challenges instead of returning to an unusable second step", () => {
     saveTwoFactorLoginChallenge({
       ticket: "expired-ticket",
