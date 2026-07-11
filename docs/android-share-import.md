@@ -50,7 +50,7 @@ Android Manifest 注册了以下入口：
 
 - 最多保留 20 组分享；
 - 每组最多 100 个文件；
-- 待处理文件总量最多 2GB；
+- 队列累计超过约 2GB 时优先清理最早的待处理分享；
 - 超过 7 天的临时内容自动清理。
 
 ## 大文件上传
@@ -71,8 +71,8 @@ Android Manifest 注册了以下入口：
 
 - 清理 `/`、`\\`、控制字符、前导点和超长文件名；
 - 阻止 APK、EXE、MSI、脚本、动态库、快捷方式等危险扩展名；
-- 阻止危险 MIME；
-- 检查 `MZ`、ELF、Java Class 和 shebang 等可执行文件头；
+- 阻止危险 MIME，并拒绝 MIME 中的 CRLF、参数和非法分隔符；
+- 检查 `MZ`、ELF、DEX、Mach-O、shebang 和 APK 容器特征等可执行文件头；
 - 对 PDF、PNG、JPEG、GIF、WebP、BMP、ZIP、DOCX、XLSX、PPTX、RAR、7z 做文件头识别；
 - MIME 与实际内容不一致时使用识别后的类型，并在 UI 标注；
 - 私有文件读取时再次做 canonical path 边界检查；
