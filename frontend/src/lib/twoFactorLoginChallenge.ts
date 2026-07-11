@@ -2,7 +2,7 @@ export const TWO_FACTOR_LOGIN_CHALLENGE_EVENT = "nowen:two-factor-login-challeng
 
 const STORAGE_KEY = "nowen.twoFactorLoginChallenge";
 const DEFAULT_TTL_SECONDS = 5 * 60;
-const MAX_TTL_SECONDS = 10 * 60;
+const MAX_TTL_SECONDS = 5 * 60;
 
 export interface TwoFactorLoginChallenge {
   ticket: string;
