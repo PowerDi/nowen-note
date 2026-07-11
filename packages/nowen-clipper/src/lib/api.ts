@@ -1,25 +1,14 @@
-/**
- * 与 nowen-note 后端的 HTTP 交互。
- *
- * 认证方式：用户名 + 密码登录获取 JWT，后续通过 Authorization: Bearer <JWT> 认证。
- *
- * 接口：
- *   - POST /api/auth/login       用户名密码登录，获取 JWT
- *   - GET  /api/me               验证 token 有效性 + 获取用户信息
- *   - POST /api/export/import    批量导入笔记
- *   - GET  /api/notebooks        列出可选笔记本
- */
 import { normalizeBaseUrl, type NowenClipperConfig } from "./storage";
 
 export interface ImportNotePayload {
   title: string;
-  /** HTML 字符串。若 outputFormat=markdown，服务端不解析图片 data URI——所以我们走"HTML 里嵌 data:image" 的老路 */
   content: string;
   contentText: string;
-  /** 可选：按路径归属到某笔记本（从根到叶） */
+  contentFormat?: "markdown" | "tiptap-json";
   notebookPath?: string[];
-  /** 单层向后兼容 */
   notebookName?: string;
+  notebookId?: string;
+  workspaceId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -30,6 +19,7 @@ export interface ImportResponse {
   notebookId: string;
   notebookIds: string[];
   notes: { id: string; title: string; notebookId: string }[];
+  workspaceId?: string | null;
 }
 
 export interface LoginResponse {
@@ -44,9 +34,34 @@ export interface LoginResponse {
     createdAt: string;
     mustChangePassword?: boolean;
   };
-  /** 若用户开启了 2FA，返回此字段而非 token */
   requires2FA?: boolean;
   ticket?: string;
+  username?: string;
+}
+
+export interface WorkspaceSummary {
+  id: string;
+  name: string;
+  icon?: string;
+  role: "owner" | "admin" | "editor" | "viewer";
+  memberCount?: number;
+  notebookCount?: number;
+}
+
+export interface NotebookSummary {
+  id: string;
+  name: string;
+  parentId: string | null;
+  workspaceId?: string | null;
+  userId?: string;
+  isDeleted?: number;
+}
+
+export interface TagSummary {
+  id: string;
+  name: string;
+  color?: string;
+  workspaceId?: string | null;
 }
 
 export class NowenApiError extends Error {
@@ -84,11 +99,23 @@ async function parseErr(res: Response): Promise<NowenApiError> {
   return new NowenApiError(res.status, code, `[${res.status}] ${message}`);
 }
 
-/**
- * 登录：POST /api/auth/login
- * 返回 JWT token 和用户信息。
- * 注意：如果用户开启了 2FA，返回 requires2FA=true + ticket，需要额外处理。
- */
+async function requestJson<T>(
+  cfg: NowenClipperConfig,
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const base = normalizeBaseUrl(cfg.serverUrl);
+  const res = await fetch(`${base}/api${path}`, {
+    ...init,
+    headers: {
+      ...authHeaders(cfg),
+      ...(init.headers || {}),
+    },
+  });
+  if (!res.ok) throw await parseErr(res);
+  return (await res.json()) as T;
+}
+
 export async function login(
   serverUrl: string,
   username: string,
@@ -104,10 +131,6 @@ export async function login(
   return (await res.json()) as LoginResponse;
 }
 
-/**
- * 2FA 验证：POST /api/auth/2fa/verify
- * 登录第二步：凭 ticket + TOTP 码换取真正的 login token。
- */
 export async function verify2FA(
   serverUrl: string,
   ticket: string,
@@ -123,44 +146,35 @@ export async function verify2FA(
   return (await res.json()) as LoginResponse;
 }
 
-/** 探活 + token 校验：GET /api/me 成功即代表 token 有效 */
-export async function ping(cfg: NowenClipperConfig): Promise<{ username: string; role: string }> {
-  const base = normalizeBaseUrl(cfg.serverUrl);
-  const res = await fetch(`${base}/api/me`, {
-    method: "GET",
-    headers: authHeaders(cfg),
-  });
-  if (!res.ok) throw await parseErr(res);
-  return (await res.json()) as { username: string; role: string };
+export async function ping(
+  cfg: NowenClipperConfig,
+): Promise<{ id?: string; username: string; role: string; displayName?: string | null }> {
+  return requestJson(cfg, "/me");
 }
 
-/** 获取笔记本树（打平过的列表） */
+export async function listWorkspaces(cfg: NowenClipperConfig): Promise<WorkspaceSummary[]> {
+  return requestJson(cfg, "/workspaces");
+}
+
 export async function listNotebooks(
   cfg: NowenClipperConfig,
-): Promise<Array<{ id: string; name: string; parentId: string | null }>> {
-  const base = normalizeBaseUrl(cfg.serverUrl);
-  const res = await fetch(`${base}/api/notebooks`, { headers: authHeaders(cfg) });
-  if (!res.ok) throw await parseErr(res);
-  return (await res.json()) as Array<{ id: string; name: string; parentId: string | null }>;
+  workspaceId: string | null = null,
+): Promise<NotebookSummary[]> {
+  const scope = workspaceId ? encodeURIComponent(workspaceId) : "personal";
+  return requestJson(cfg, `/notebooks?workspaceId=${scope}`);
 }
 
-/** 导入一条笔记。
- *
- * 关键点：我们提交的 content 是 HTML；后端 `export/import` 路由会自动调用
- * `extractInlineBase64Images` 把 <img src="data:image/..."> 抽成 /api/attachments/<id>，
- * 因此"图片随正文一起提交"对调用方是零感知的。
- */
 export async function importNote(
   cfg: NowenClipperConfig,
   payload: ImportNotePayload,
 ): Promise<ImportResponse> {
-  const base = normalizeBaseUrl(cfg.serverUrl);
   const body: Record<string, unknown> = {
     notes: [
       {
         title: payload.title,
         content: payload.content,
         contentText: payload.contentText,
+        contentFormat: payload.contentFormat,
         notebookName: payload.notebookName,
         notebookPath: payload.notebookPath,
         createdAt: payload.createdAt,
@@ -168,29 +182,94 @@ export async function importNote(
       },
     ],
   };
-  // 如果 payload 给了 notebookName 作为全局归属（优先级更高）
-  if (payload.notebookName && !payload.notebookPath) {
-    body.notebookName = payload.notebookName;
-  }
+  if (payload.notebookId) body.notebookId = payload.notebookId;
+  else if (payload.notebookName && !payload.notebookPath) body.notebookName = payload.notebookName;
 
-  const res = await fetch(`${base}/api/export/import`, {
+  const scope = payload.workspaceId ? encodeURIComponent(payload.workspaceId) : "personal";
+  return requestJson(cfg, `/export/import?workspaceId=${scope}`, {
     method: "POST",
-    headers: authHeaders(cfg),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw await parseErr(res);
-  return (await res.json()) as ImportResponse;
 }
 
-// ============================================================
-// AI 优化：剪藏正文 → LLM 增强 → 返回结构化结果
-// ------------------------------------------------------------
-//
-// 对应后端 POST /api/ai/clip-enhance（非流式）。
-// 注意失败语义：后端把"AI 服务调用失败"包装成 HTTP 200 + ok:false，
-// 这样客户端可以根据 cfg.aiFailureStrategy 决定是降级保存原文还是整体失败，
-// 而不是触发 fetch 的异常路径。HTTP 4xx/5xx 仍走异常抛出。
-// ============================================================
+export async function setNotePinned(
+  cfg: NowenClipperConfig,
+  noteId: string,
+  pinned: boolean,
+): Promise<void> {
+  await requestJson(cfg, `/notes/${encodeURIComponent(noteId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ isPinned: pinned ? 1 : 0 }),
+  });
+}
+
+export async function listTags(
+  cfg: NowenClipperConfig,
+  workspaceId: string | null,
+): Promise<TagSummary[]> {
+  const scope = workspaceId ? encodeURIComponent(workspaceId) : "personal";
+  return requestJson(cfg, `/tags?workspaceId=${scope}&includeEmpty=true`);
+}
+
+export async function createTag(
+  cfg: NowenClipperConfig,
+  name: string,
+  workspaceId: string | null,
+): Promise<TagSummary> {
+  return requestJson(cfg, "/tags", {
+    method: "POST",
+    body: JSON.stringify({ name, workspaceId }),
+  });
+}
+
+export async function attachTag(
+  cfg: NowenClipperConfig,
+  noteId: string,
+  tagId: string,
+): Promise<void> {
+  await requestJson(cfg, `/tags/note/${encodeURIComponent(noteId)}/tag/${encodeURIComponent(tagId)}`, {
+    method: "POST",
+    body: "{}",
+  });
+}
+
+/**
+ * 将标签名称落成真实 tags + note_tags。单个标签失败由调用方记录，不回滚已保存笔记。
+ */
+export async function ensureNoteTags(
+  cfg: NowenClipperConfig,
+  noteId: string,
+  names: string[],
+  workspaceId: string | null,
+): Promise<string[]> {
+  const unique = Array.from(new Set(names.map((name) => name.trim()).filter(Boolean))).slice(0, 20);
+  if (unique.length === 0) return [];
+
+  const failures: string[] = [];
+  let existing = await listTags(cfg, workspaceId).catch(() => [] as TagSummary[]);
+  for (const name of unique) {
+    let tag = existing.find((item) => item.name.toLowerCase() === name.toLowerCase());
+    if (!tag) {
+      try {
+        tag = await createTag(cfg, name, workspaceId);
+        existing = [...existing, tag];
+      } catch (error: any) {
+        failures.push(`${name}：${String(error?.message || error)}`);
+        continue;
+      }
+    }
+    try {
+      await attachTag(cfg, noteId, tag.id);
+    } catch (error: any) {
+      failures.push(`${name}：${String(error?.message || error)}`);
+    }
+  }
+  return failures;
+}
+
+export function buildNoteUrl(cfg: NowenClipperConfig, noteId: string): string {
+  return `${normalizeBaseUrl(cfg.serverUrl)}/?noteId=${encodeURIComponent(noteId)}`;
+}
 
 export interface AIEnhanceRequest {
   title?: string;
@@ -229,14 +308,8 @@ export async function enhanceClip(
   cfg: NowenClipperConfig,
   payload: AIEnhanceRequest,
 ): Promise<AIEnhanceResult> {
-  const base = normalizeBaseUrl(cfg.serverUrl);
-  const res = await fetch(`${base}/api/ai/clip-enhance`, {
+  return requestJson(cfg, "/ai/clip-enhance", {
     method: "POST",
-    headers: authHeaders(cfg),
     body: JSON.stringify(payload),
   });
-  // 4xx / 5xx 走异常路径
-  if (!res.ok) throw await parseErr(res);
-  // 200 同时可能携带 ok:false（AI 服务自身的逻辑失败，例如超时、JSON 解析失败）
-  return (await res.json()) as AIEnhanceResult;
 }
