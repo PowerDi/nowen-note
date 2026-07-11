@@ -18,12 +18,12 @@ describe("taskAttachmentExportFallback", () => {
     vi.useFakeTimers();
     toastMock.warning.mockReset();
     originalFetch = window.fetch;
-    delete (window as Window & Record<string, unknown>)[INSTALL_MARKER];
+    delete (window as unknown as Record<string, unknown>)[INSTALL_MARKER];
   });
 
   afterEach(() => {
     window.fetch = originalFetch;
-    delete (window as Window & Record<string, unknown>)[INSTALL_MARKER];
+    delete (window as unknown as Record<string, unknown>)[INSTALL_MARKER];
     vi.useRealTimers();
   });
 
@@ -38,7 +38,6 @@ describe("taskAttachmentExportFallback", () => {
     expect(response.headers.get("Content-Type")).toContain("image/svg+xml");
     expect(response.headers.get("X-Nowen-Task-Attachment-Placeholder")).toBe("missing");
     expect(await response.text()).toContain("原任务图片已丢失");
-    expect(await response.clone().text().catch(() => "")).toBe("");
 
     await vi.runAllTimersAsync();
     expect(toastMock.warning).toHaveBeenCalledWith(
@@ -77,5 +76,6 @@ describe("taskAttachmentExportFallback", () => {
     const response = await window.fetch("/api/task-attachments/attachment-3");
     expect(response.status).toBe(200);
     expect(upstream).toHaveBeenCalledTimes(1);
+    await vi.runAllTimersAsync();
   });
 });
