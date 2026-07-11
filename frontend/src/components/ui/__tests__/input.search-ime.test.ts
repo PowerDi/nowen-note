@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { shouldForwardSidebarSearchChange } from "@/components/ui/input"
-import { normalizeSidebarSearchValue } from "@/lib/sidebarSearchBridge"
+import {
+  emitSidebarSearchChange,
+  emitSidebarSearchSync,
+  getCurrentSidebarSearchValue,
+  normalizeSidebarSearchValue,
+} from "@/lib/sidebarSearchBridge"
 
 type NativeEventShape = Parameters<typeof shouldForwardSidebarSearchChange>[0]
 
@@ -35,5 +40,13 @@ describe("sidebar search IME event routing", () => {
     expect(normalizeSidebarSearchValue({ value: "" })).toBe("")
     expect(normalizeSidebarSearchValue({ value: 1 })).toBeNull()
     expect(normalizeSidebarSearchValue(null)).toBeNull()
+  })
+
+  it("retains the latest query for sidebar remounts, including an intentional empty value", () => {
+    emitSidebarSearchSync("移动端搜索")
+    expect(getCurrentSidebarSearchValue()).toBe("移动端搜索")
+
+    emitSidebarSearchChange("")
+    expect(getCurrentSidebarSearchValue()).toBe("")
   })
 })
