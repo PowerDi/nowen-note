@@ -95,6 +95,22 @@ export function saveFolderSyncPreferences(
   return normalized;
 }
 
+function toMainProcessPreferences(preferences: FolderSyncPreferences): FolderSyncPreferences {
+  const expanded: string[] = [];
+  for (const pattern of preferences.excludePatterns) {
+    if (!expanded.includes(pattern)) expanded.push(pattern);
+    // A conventional **/draft/** rule must also match draft/** at the root.
+    // The local scanner intentionally uses a small, dependency-free glob engine,
+    // so send the root-equivalent rule explicitly instead of relying on hidden magic.
+    if (pattern.startsWith("**/")) {
+      const rootEquivalent = pattern.slice(3);
+      if (rootEquivalent && !expanded.includes(rootEquivalent)) expanded.push(rootEquivalent);
+    }
+    if (expanded.length >= MAX_PATTERNS) break;
+  }
+  return { ...preferences, excludePatterns: expanded.slice(0, MAX_PATTERNS) };
+}
+
 /**
  * The existing Electron IPC intentionally whitelists the original MVP fields.
  * To remain compatible with older preload/main bundles, advanced preferences are
@@ -108,7 +124,7 @@ export async function pushFolderSyncPreferences(
   input: Partial<FolderSyncPreferences>,
 ): Promise<FolderSyncPreferences> {
   const normalized = saveFolderSyncPreferences(folderId, input);
-  const compact = JSON.stringify(normalized);
+  const compact = JSON.stringify(toMainProcessPreferences(normalized));
   await api.appendLog(folderId, "sync", `${FOLDER_SYNC_PREFS_MESSAGE_PREFIX}${compact}`);
   return normalized;
 }
