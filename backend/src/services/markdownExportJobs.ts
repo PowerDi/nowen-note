@@ -186,6 +186,7 @@ async function buildArchive(
   job: MarkdownExportJob,
   notes: PreparedMarkdownNote[],
   inlineImages: boolean,
+  layout: "notebooks" | "flat",
 ): Promise<void> {
   job.state = "building";
   job.message = "正在生成 ZIP";
@@ -221,15 +222,16 @@ async function buildArchive(
 
   for (let index = 0; index < notes.length; index++) {
     const note = notes[index];
-    const folder = sanitizeFilename(note.notebookName || "未分类");
-    folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
+    const folder = layout === "flat" ? "" : sanitizeFilename(note.notebookName || "未分类");
+    const zipPrefix = folder ? `${folder}/` : "";
+    if (folder) folderCounts.set(folder, (folderCounts.get(folder) || 0) + 1);
     const baseName = sanitizeFilename(note.title);
     let noteName = baseName;
     let suffix = 2;
-    while (usedNotePaths.has(`${folder}/${noteName}.md`)) {
+    while (usedNotePaths.has(`${zipPrefix}${noteName}.md`)) {
       noteName = `${baseName}_${suffix++}`;
     }
-    usedNotePaths.add(`${folder}/${noteName}.md`);
+    usedNotePaths.add(`${zipPrefix}${noteName}.md`);
     let markdown = note.markdown || "";
 
     for (const attachmentId of attachmentIdsInMarkdown(markdown)) {
@@ -255,7 +257,7 @@ async function buildArchive(
 
       const assetName = `att-${sanitizeFilename(row.id)}-${sanitizeFilename(row.filename)}`;
       const relPath = `assets/${assetName}`;
-      const zipPath = `${folder}/${relPath}`;
+      const zipPath = `${zipPrefix}${relPath}`;
       if (writtenAttachments.has(zipPath)) {
         markdown = replaceAttachmentUrl(markdown, attachmentId, `./${relPath}`);
         continue;
@@ -275,7 +277,7 @@ async function buildArchive(
         warnings.push({ type: "inline_asset_invalid_path", noteId: note.id, path: asset.relPath });
         continue;
       }
-      const zipPath = `${folder}/${relPath}`;
+      const zipPath = `${zipPrefix}${relPath}`;
       if (writtenAttachments.has(zipPath)) continue;
       const estimatedBytes = Math.ceil((asset.base64.length * 3) / 4);
       if (estimatedBytes > MAX_INLINE_ASSET_BYTES) {
@@ -302,7 +304,7 @@ async function buildArchive(
       "---",
       "",
     ].join("\n");
-    archive.append(frontmatter + markdown, { name: `${folder}/${noteName}.md` });
+    archive.append(frontmatter + markdown, { name: `${zipPrefix}${noteName}.md` });
     job.current = index + 1;
     job.message = `正在打包：${note.title}`;
   }
@@ -336,6 +338,8 @@ export function createMarkdownExportJob(params: {
   userId: string;
   notes: PreparedMarkdownNote[];
   inlineImages: boolean;
+  layout?: "notebooks" | "flat";
+  filenameBase?: string;
 }): MarkdownExportJobSnapshot {
   cleanupExpiredJobs();
   for (const [jobId, job] of jobs) {
@@ -358,7 +362,9 @@ export function createMarkdownExportJob(params: {
     current: 0,
     total: params.notes.length,
     message: "等待生成 ZIP",
-    filename: `nowen-note_backup_${date}.zip`,
+    filename: params.filenameBase
+      ? `${sanitizeFilename(params.filenameBase)}.zip`
+      : `nowen-note_backup_${date}.zip`,
     warnings: 0,
     tmpDir,
     tmpPath: path.join(tmpDir, "export.zip"),
@@ -367,7 +373,7 @@ export function createMarkdownExportJob(params: {
   };
   jobs.set(id, job);
 
-  void buildArchive(job, params.notes, params.inlineImages).catch((error) => {
+  void buildArchive(job, params.notes, params.inlineImages, params.layout || "notebooks").catch((error) => {
     console.error("[markdown-export] build failed:", error);
     safeRemove(job.tmpDir);
     job.state = "error";

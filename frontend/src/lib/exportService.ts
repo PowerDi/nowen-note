@@ -1344,15 +1344,6 @@ export async function exportSingleNote(
       const r = await extractDataImages(html, registry);
       html = r.html;
       extractedImages = r.images;
-
-      // 同样把 /api/attachments/<id> 的图片一起拉下来
-      const stats: ImgStats = { ok: 0, failed: 0, failures: [] };
-      const r2 = await fetchRemoteImages(html, registry, stats, { noteId: note.id, noteTitle: note.title });
-      html = r2.html;
-      extractedImages = extractedImages.concat(r2.images);
-      if (stats.failed > 0) {
-        console.warn(`[exportSingleNote] ${stats.failed} image(s) failed to download; keeping original <img src>.`);
-      }
     } else if (inlineImages && html) {
       // inline 模式：把附件内嵌成 data URI，让二次导入时后端自动重建附件
       const stats: ImgStats = { ok: 0, failed: 0, failures: [] };
@@ -1375,20 +1366,35 @@ export async function exportSingleNote(
 
     const fullContent = frontmatter + markdown;
     const safeTitle = sanitizeFilename(note.title);
+    const hasServerAssets = extractedImages.length > 0 || /\/api\/attachments\//i.test(markdown);
 
-    if (extractedImages.length > 0) {
-      // 打成 zip：根目录放 md + assets/
-      const zip = new JSZip();
-      zip.file(`${safeTitle}.md`, fullContent);
-      for (const img of extractedImages) {
-        zip.file(img.relPath, img.base64, { base64: true });
-      }
-      const blob = await zip.generateAsync({
-        type: "blob",
-        compression: "DEFLATE",
-        compressionOptions: { level: 6 },
+    if (!inlineImages && hasServerAssets) {
+      // 单篇含附件时也交给后端流式打包，避免 Blob 下载被 Chrono 等扩展卡在完成状态。
+      const created = await api.createMarkdownExportJob([{
+        id: note.id,
+        title: note.title,
+        notebookName: null,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        contentFormat: note.contentFormat,
+        markdown,
+        inlineAssets: extractedImages,
+      }], {
+        inlineImages: false,
+        layout: "flat",
+        filenameBase: safeTitle,
       });
-      saveAs(blob, `${safeTitle}.zip`);
+      let job = created.job;
+      const deadline = Date.now() + 30 * 60 * 1000;
+      while (job.state === "queued" || job.state === "building") {
+        if (Date.now() > deadline) throw new Error("导出任务超时，请稍后重试");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        job = (await api.getMarkdownExportJob(job.id)).job;
+      }
+      if (job.state === "error") throw new Error(job.message || "生成 ZIP 失败");
+      if (!job.downloadToken) throw new Error("导出任务完成但没有生成下载链接");
+      api.downloadMarkdownExport(job.downloadToken, job.filename);
+      if (job.warnings > 0) console.warn(`[exportSingleNote] ${job.message}`);
     } else {
       const blob = new Blob([fullContent], { type: "text/markdown;charset=utf-8" });
       saveAs(blob, `${safeTitle}.md`);

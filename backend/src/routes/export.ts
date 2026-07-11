@@ -279,6 +279,8 @@ app.post("/markdown-package/jobs", async (c) => {
   const body = await c.req.json().catch(() => null) as {
     notes?: PreparedMarkdownNote[];
     inlineImages?: boolean;
+    layout?: "notebooks" | "flat";
+    filenameBase?: string;
   } | null;
   const notes = body?.notes;
   if (!Array.isArray(notes) || notes.length === 0) {
@@ -309,6 +311,8 @@ app.post("/markdown-package/jobs", async (c) => {
       userId,
       notes,
       inlineImages: body?.inlineImages === true,
+      layout: body?.layout === "flat" ? "flat" : "notebooks",
+      filenameBase: typeof body?.filenameBase === "string" ? body.filenameBase : undefined,
     });
     return c.json({ job }, 202);
   } catch (error) {

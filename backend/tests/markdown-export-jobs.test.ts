@@ -111,6 +111,42 @@ test("markdown export writes attachments to a ZIP file and keeps duplicate note 
   );
 });
 
+test("single-note flat export keeps the note and assets at ZIP root", async () => {
+  const service = await import("../src/services/markdownExportJobs");
+  const created = service.createMarkdownExportJob({
+    userId: "user-export",
+    inlineImages: false,
+    layout: "flat",
+    filenameBase: "资料分析模块",
+    notes: [{
+      id: "note-1",
+      title: "资料分析模块",
+      notebookName: null,
+      createdAt: "2026-07-11 10:00:00",
+      updatedAt: "2026-07-11 10:00:00",
+      contentFormat: "markdown",
+      markdown: "![图](./assets/image.png)",
+      inlineAssets: [{ relPath: "assets/image.png", base64: Buffer.from("image").toString("base64") }],
+    }],
+  });
+
+  let snapshot = created;
+  for (let i = 0; i < 200 && snapshot.state !== "ready" && snapshot.state !== "error"; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    snapshot = service.getMarkdownExportJob(created.id, "user-export")!;
+  }
+  assert.equal(snapshot.state, "ready", snapshot.message);
+  assert.equal(snapshot.filename, "资料分析模块.zip");
+
+  const app = new Hono();
+  app.get("/download/:token", service.handleMarkdownExportDownload);
+  const response = await app.request(`/download/${snapshot.downloadToken}`);
+  const zip = await JSZip.loadAsync(await response.arrayBuffer());
+  assert.ok(zip.file("资料分析模块.md"));
+  assert.equal(await zip.file("assets/image.png")!.async("string"), "image");
+  assert.equal(zip.file("未分类/资料分析模块.md"), null);
+});
+
 test("markdown export route validates note ownership and exposes asynchronous status", async () => {
   const exportRouter = (await import("../src/routes/export")).default;
   const app = new Hono();

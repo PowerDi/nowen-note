@@ -1865,7 +1865,12 @@ export const api = {
       markdown: string;
       inlineAssets?: Array<{ relPath: string; base64: string }>;
     }>,
-    options?: { inlineImages?: boolean; workspaceId?: string },
+    options?: {
+      inlineImages?: boolean;
+      workspaceId?: string;
+      layout?: "notebooks" | "flat";
+      filenameBase?: string;
+    },
   ) => {
     const params = new URLSearchParams();
     if (options?.workspaceId && options.workspaceId !== "personal") {
@@ -1885,7 +1890,12 @@ export const api = {
       };
     }>(`/export/markdown-package/jobs${qs}`, {
       method: "POST",
-      body: JSON.stringify({ notes, inlineImages: options?.inlineImages === true }),
+      body: JSON.stringify({
+        notes,
+        inlineImages: options?.inlineImages === true,
+        layout: options?.layout,
+        filenameBase: options?.filenameBase,
+      }),
     });
   },
   getMarkdownExportJob: (jobId: string) =>
