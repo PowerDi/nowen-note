@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { shouldForwardSidebarSearchChange } from "@/components/ui/input"
+import { normalizeSidebarSearchValue } from "@/lib/sidebarSearchBridge"
 
 type NativeEventShape = Parameters<typeof shouldForwardSidebarSearchChange>[0]
 
@@ -29,14 +30,10 @@ describe("sidebar search IME event routing", () => {
     )).toBe(false)
   })
 
-  it("accepts the marked fallback emitted after compositionend", () => {
-    expect(shouldForwardSidebarSearchChange(
-      eventOf({
-        isTrusted: false,
-        isComposing: false,
-        __nowenSidebarSearchImeCommit: true,
-      }),
-      false,
-    )).toBe(true)
+  it("reads only valid sidebar bridge string payloads", () => {
+    expect(normalizeSidebarSearchValue({ value: "我" })).toBe("我")
+    expect(normalizeSidebarSearchValue({ value: "" })).toBe("")
+    expect(normalizeSidebarSearchValue({ value: 1 })).toBeNull()
+    expect(normalizeSidebarSearchValue(null)).toBeNull()
   })
 })
