@@ -11,6 +11,11 @@ import { Search as SearchIcon, FileText, Loader2 } from "lucide-react";
 import { useApp, useAppActions } from "@/store/AppContext";
 import { api } from "@/lib/api";
 import { highlightTextNode, sanitizeSearchHtml } from "@/lib/searchHighlight";
+import {
+  emitSidebarSearchSync,
+  normalizeSidebarSearchValue,
+  SIDEBAR_SEARCH_CHANGE_EVENT,
+} from "@/lib/sidebarSearchBridge";
 import type { SearchResult } from "@/types";
 import SearchCenter from "@/components/SearchCenter";
 
@@ -21,12 +26,52 @@ export interface CommandPaletteProps {
 }
 
 /**
- * Sidebar 的搜索框是本地受控输入。SearchCenter 打开结果时会派发一个原生 input
- * 事件把它清空，Sidebar 的空值分支会同步把 viewMode 切到 all。由于这两个组件
- * 独立调度，最后一次 dispatch 可能覆盖 SearchCenter 刚设置的 notebook 目标。
- *
- * 守卫只在“刚离开 search 会话 + 已打开目标笔记 + 查询已清空”这一窄窗口修正，
- * 不影响用户平时从 Rail 主动切换到 all/favorites 等其他视图。
+ * Sidebar 仍保留历史上的本地 searchInput，但不再允许它直接决定 viewMode。
+ * 输入组件把真实用户输入发送到这里，由全局 searchQuery 作为唯一业务状态；反向同步
+ * 只更新 Sidebar 的显示值，不触发其旧的“空值 → all”分支。
+ */
+function SidebarSearchStateBridge() {
+  const { state } = useApp();
+  const actions = useAppActions();
+  const focusTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    emitSidebarSearchSync(state.searchQuery || "");
+  }, [state.mobileSidebarOpen, state.searchQuery]);
+
+  useEffect(() => {
+    const handleSidebarSearchChange = (event: Event) => {
+      const value = normalizeSidebarSearchValue((event as CustomEvent<unknown>).detail);
+      if (value == null) return;
+
+      actions.setSearchQuery(value);
+      if (state.viewMode !== "search") actions.setViewMode("search");
+
+      // SearchCenter 会在首次进入 search 时自动 focus。移动抽屉仍打开时，把焦点交还
+      // 给用户正在使用的 Sidebar 输入框，避免 Android 键盘突然收起或跳到遮罩后的输入框。
+      if (state.mobileSidebarOpen) {
+        if (focusTimerRef.current != null) window.clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = window.setTimeout(() => {
+          const input = document.querySelector<HTMLInputElement>("[data-sidebar-search]");
+          input?.focus({ preventScroll: true });
+          focusTimerRef.current = null;
+        }, 0);
+      }
+    };
+
+    window.addEventListener(SIDEBAR_SEARCH_CHANGE_EVENT, handleSidebarSearchChange);
+    return () => {
+      window.removeEventListener(SIDEBAR_SEARCH_CHANGE_EVENT, handleSidebarSearchChange);
+      if (focusTimerRef.current != null) window.clearTimeout(focusTimerRef.current);
+    };
+  }, [actions, state.mobileSidebarOpen, state.viewMode]);
+
+  return null;
+}
+
+/**
+ * 历史兼容守卫：只在“刚离开 search 会话 + 已打开目标笔记 + 查询已清空”这一窄窗口
+ * 修正旧版本可能留下的 all 状态。新的 Sidebar bridge 已不会再制造该竞态。
  */
 function SearchNavigationGuard() {
   const { state } = useApp();
@@ -259,6 +304,7 @@ export default function CommandPalette({ open, onClose }: CommandPaletteProps) {
 
   return (
     <>
+      <SidebarSearchStateBridge />
       <SearchNavigationGuard />
       <SearchCenter />
       {typeof document !== "undefined" && paletteBody ? createPortal(paletteBody, document.body) : null}
