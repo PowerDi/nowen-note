@@ -21,6 +21,19 @@ function storeLoginToken(token: string): void {
   }
 }
 
+function finishLoginNavigation(): void {
+  try {
+    const raw = new URLSearchParams(window.location.search).get("redirect");
+    if (raw && /^\/[A-Za-z0-9_\-./?&=%#]*$/.test(raw) && !raw.startsWith("//")) {
+      window.location.replace(raw);
+      return;
+    }
+  } catch {
+    /* fall through to a normal reload */
+  }
+  window.location.reload();
+}
+
 export default function TwoFactorLoginChallengeCenter() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [challenge, setChallenge] = useState<TwoFactorLoginChallenge | null>(() =>
@@ -168,7 +181,7 @@ export default function TwoFactorLoginChallengeCenter() {
 
       storeLoginToken(data.token);
       clearTwoFactorLoginChallenge();
-      window.location.reload();
+      finishLoginNavigation();
     } catch (requestError: any) {
       setError(requestError?.message || copy.failed);
     } finally {
