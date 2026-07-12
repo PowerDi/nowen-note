@@ -51,6 +51,8 @@ import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue"
 type Tab = "profiles" | "migration" | "guide";
 type FormMode = "create" | "edit";
 
+export const SERVER_CONNECTION_CENTER_OPEN_EVENT = "nowen:server-connection-center-open";
+
 const statusLabel: Record<ServerProfile["status"], string> = {
   unknown: "未检测",
   checking: "检测中",
@@ -124,6 +126,15 @@ export default function ServerConnectionCenter() {
   };
 
   useEffect(() => subscribeServerProfiles(refreshProfiles), []);
+
+  useEffect(() => {
+    const openCenter = () => {
+      setTab("profiles");
+      setOpen(true);
+    };
+    window.addEventListener(SERVER_CONNECTION_CENTER_OPEN_EVENT, openCenter);
+    return () => window.removeEventListener(SERVER_CONNECTION_CENTER_OPEN_EVENT, openCenter);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -824,23 +835,6 @@ export default function ServerConnectionCenter() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="fixed top-[calc(var(--safe-area-top)+10px)] right-3 z-[155] max-w-[260px] h-9 px-3 rounded-full border border-zinc-200/90 dark:border-zinc-700/90 bg-white/92 dark:bg-zinc-900/92 backdrop-blur-xl shadow-lg flex items-center gap-2 text-left hover:border-indigo-400 transition-colors"
-        title="打开服务端与迁移中心"
-      >
-        <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(active?.status || "unknown")}`} />
-        <Server size={14} className="text-indigo-500 shrink-0" />
-        <span className="min-w-0">
-          <span className="block truncate text-xs font-medium text-zinc-800 dark:text-zinc-200">
-            {active?.name || "当前服务"}
-          </span>
-          <span className="block truncate text-[10px] leading-none text-zinc-500 dark:text-zinc-400">
-            {active?.displayName || active?.username || "点击管理连接"}
-          </span>
-        </span>
-      </button>
       {overlay}
     </>
   );

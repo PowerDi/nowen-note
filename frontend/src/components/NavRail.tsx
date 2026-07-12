@@ -43,6 +43,7 @@ import { ViewMode, WorkspaceFeatures } from "@/types";
 import { cn } from "@/lib/utils";
 import SettingsModal from "@/components/SettingsModal";
 import MigrationModal from "@/components/MigrationModal";
+import { SERVER_CONNECTION_CENTER_OPEN_EVENT } from "@/components/ServerConnectionCenter";
 import { useRailMode, nextRailMode, RailMode } from "@/hooks/useRailMode";
 import {
   changeDesktopServer,
@@ -56,6 +57,7 @@ import {
 } from "@/lib/desktopBridge";
 import { clearLocalIdMap, clearQueue, getQueueLength } from "@/lib/offlineQueue";
 import { clearRememberedCredentials } from "@/lib/rememberLogin";
+import { getActiveServerProfile, subscribeServerProfiles, type ServerProfile } from "@/lib/serverProfiles";
 
 type NavGroup = "workspace" | "modules" | "tools";
 
@@ -98,6 +100,13 @@ function isActive(itemMode: ViewMode, viewMode: ViewMode): boolean {
   return viewMode === itemMode;
 }
 
+function serverStatusDotClass(status?: ServerProfile["status"]): string {
+  if (status === "online") return "bg-emerald-500";
+  if (status === "offline" || status === "auth-expired") return "bg-rose-500";
+  if (status === "checking") return "bg-amber-500 animate-pulse";
+  return "bg-zinc-400";
+}
+
 export default function NavRail({ variant = "desktop" }: { variant?: "desktop" | "mobile" } = {}) {
   const { t } = useTranslation();
   const { state } = useApp();
@@ -138,6 +147,16 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
   const [showMigration, setShowMigration] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [desktopInfo, setDesktopInfo] = useState<AppInfo | null>(null);
+  const [activeServer, setActiveServer] = useState<ServerProfile | null>(() => (
+    isDesktopApp() ? getActiveServerProfile() : null
+  ));
+
+  useEffect(() => {
+    if (!isDesktopApp()) return;
+    const refreshActiveServer = () => setActiveServer(getActiveServerProfile());
+    refreshActiveServer();
+    return subscribeServerProfiles(refreshActiveServer);
+  }, []);
 
   useEffect(() => {
     if (!isDesktopApp()) return;
@@ -497,6 +516,30 @@ export default function NavRail({ variant = "desktop" }: { variant?: "desktop" |
       <div className={cn("my-2 border-t border-app-border/60", showLabel ? "w-8" : "w-6")} aria-hidden />
 
       {/* 底部：设置 + 登出（label 模式下与导航项视觉对齐——也带文字，因为它们语义上是入口） */}
+      {isDesktopApp() && (
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new Event(SERVER_CONNECTION_CENTER_OPEN_EVENT))}
+          title={showLabel ? undefined : "服务端与迁移中心"}
+          aria-label="服务端与迁移中心"
+          className={cn(
+            itemBaseClass,
+            "text-tx-tertiary hover:bg-app-hover hover:text-accent-primary",
+          )}
+        >
+          <Server size={16} />
+          <span
+            className={cn(
+              "absolute right-1 top-1 w-2 h-2 rounded-full ring-2 ring-app-sidebar",
+              serverStatusDotClass(activeServer?.status),
+            )}
+            aria-hidden
+          />
+          {showLabel && (
+            <span className="text-[10px] leading-none mt-0.5 max-w-full truncate px-1">服务端</span>
+          )}
+        </button>
+      )}
       <button
         onClick={() => setShowSettings(true)}
         title={showLabel ? undefined : t('sidebar.settings')}
