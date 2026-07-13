@@ -1,72 +1,64 @@
 /**
- * 离线写入队列（Offline Mutation Queue）
- * =========================================================================
+ * Offline mutation queue for note writes.
  *
- * 当网络不可用或请求失败（网络错误 / 5xx）时，把写入类 API 调用暂存到
- * localStorage，等恢复网络后自动按 FIFO 串行 flush 到服务器。
- *
- * 设计约束：
- *   - 仅拦截笔记相关的写入操作（PUT /notes/:id、POST /notes、DELETE /notes/:id）；
- *   - GET 请求不拦截——离线时读取依赖 store 缓存；
- *   - 同一笔记的多次 updateNote 会合并（保留最后一次 payload）；
- *   - 单条超过 7 天自动过期丢弃；
- *   - flush 时遇 409 VERSION_CONFLICT 停止自动重试，保留本地 payload 等待用户处理；
- *   - 非 409 失败保留在队列里，下次再试。
- *
- * 存储 key: "nowen-offline-queue:v2:<server-scope>:<userId>"
- * 格式: JSON 数组 OfflineQueueItem[]
- *
- * 关键：队列必须按「服务器/本地实例 + 用户」隔离。
- * 否则云端 A 离线写入、切到本地/云端 B 后，可能被 flush 到错误后端。
+ * Queue entries are scoped by server + user, persisted in localStorage, and
+ * replayed serially. Failed entries are never silently discarded: retryable
+ * failures remain available for retry and permanent failures keep their local
+ * payload for diagnostics/export.
  */
-
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type OfflineMutationType = "createNote" | "updateNote" | "deleteNote";
 
 export const OFFLINE_QUEUE_CONFLICT_EVENT = "offlineQueue:conflict";
 
 export interface OfflineQueueItem {
-  /** 唯一标识，用于去重/合并 */
   id: string;
-  /** 操作类型 */
   type: OfflineMutationType;
-  /** 笔记 ID（createNote 时为本地临时 ID "local-xxx"） */
   noteId: string;
-  /** 请求 URL（相对路径，如 /notes/xxx） */
   url: string;
-  /** HTTP method */
   method: "POST" | "PUT" | "DELETE";
-  /** 请求体（DELETE 时为 null） */
   body: Record<string, unknown> | null;
-  /** 入队时间戳（ms） */
   enqueuedAt: number;
-  /** 重试次数 */
   retryCount: number;
-  /** 版本冲突项不再自动重试，避免旧内容覆盖新内容 */
   conflict?: boolean;
+  blocked?: boolean;
+  retryable?: boolean;
   errorCode?: "VERSION_CONFLICT" | string;
   serverVersion?: number;
   localPayload?: Record<string, unknown> | null;
   failedAt?: number;
+  lastAttemptAt?: number;
+  lastHttpStatus?: number;
   message?: string;
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+export interface OfflineQueueFetchContext {
+  idempotencyKey: string;
+  item: OfflineQueueItem;
+}
+
+export type OfflineQueueFetch = (
+  url: string,
+  method: string,
+  body: Record<string, unknown> | null,
+  context?: OfflineQueueFetchContext,
+) => Promise<{ ok: boolean; status: number; data?: any }>;
+
+export type FlushResult = {
+  success: number;
+  failed: number;
+  remaining: number;
+};
 
 const LEGACY_STORAGE_KEY = "nowen-offline-queue";
 const STORAGE_KEY_PREFIX = "nowen-offline-queue:v2";
 const LEGACY_LOCAL_ID_MAP_KEY = "nowen-offline-id-map";
 const LOCAL_ID_MAP_KEY_PREFIX = "nowen-offline-id-map:v2";
-/** 单条最大存活时间：7 天 */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-/** flush 间单条最大重试次数（超出后丢弃） */
 const MAX_RETRY = 10;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
 function generateId(): string {
-  return `oq_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  return `oq_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeScopePart(value: string): string {
@@ -82,7 +74,7 @@ function decodeUserIdFromToken(token: string | null): string {
     const json = decodeURIComponent(
       Array.from(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")))
         .map((c) => `%${c.charCodeAt(0).toString(16).padStart(2, "0")}`)
-        .join("")
+        .join(""),
     );
     const data = JSON.parse(json) as { userId?: string; sub?: string };
     return data.userId || data.sub || "anonymous";
@@ -97,8 +89,8 @@ function normalizeUrl(url: string): string {
 
 function isLoopbackUrl(url: string): boolean {
   try {
-    const u = new URL(url);
-    return u.hostname === "127.0.0.1" || u.hostname === "localhost" || u.hostname === "::1";
+    const parsed = new URL(url);
+    return parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost" || parsed.hostname === "::1";
   } catch {
     return false;
   }
@@ -112,8 +104,6 @@ function getServerScope(): string {
     : "";
   const isDesktop = typeof window !== "undefined" && !!(window as any).nowenDesktop?.isDesktop;
 
-  // 桌面 full 本地后端是 loopback + 动态端口，队列 key 必须稳定；远端/lite
-  // 通常不是 loopback，仍按 URL 隔离，避免服务器之间串队列。
   if (isDesktop && ((server && isLoopbackUrl(server)) || (!server && origin && isLoopbackUrl(origin)))) {
     return "local-desktop";
   }
@@ -122,7 +112,6 @@ function getServerScope(): string {
   return "same-origin";
 }
 
-/** 当前登录上下文对应的队列 key：服务器/本地实例 + 用户 双维度隔离。 */
 export function getOfflineQueueStorageKey(): string {
   let token: string | null = null;
   try { token = localStorage.getItem("nowen-token"); } catch { /* ignore */ }
@@ -130,8 +119,8 @@ export function getOfflineQueueStorageKey(): string {
 }
 
 function getLocalIdMapStorageKey(): string {
-  const queueKey = getOfflineQueueStorageKey().slice(STORAGE_KEY_PREFIX.length + 1);
-  return `${LOCAL_ID_MAP_KEY_PREFIX}:${queueKey}`;
+  const queueScope = getOfflineQueueStorageKey().slice(STORAGE_KEY_PREFIX.length + 1);
+  return `${LOCAL_ID_MAP_KEY_PREFIX}:${queueScope}`;
 }
 
 function readQueueFromKey(key: string): OfflineQueueItem[] {
@@ -141,20 +130,44 @@ function readQueueFromKey(key: string): OfflineQueueItem[] {
   return Array.isArray(parsed) ? parsed : [];
 }
 
-export function generateLocalNoteId(): string {
-  return `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+function uuidV4Fallback(): string {
+  const bytes = new Uint8Array(16);
+  const cryptoApi = typeof globalThis !== "undefined" ? globalThis.crypto : undefined;
+  if (cryptoApi?.getRandomValues) {
+    cryptoApi.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// ─── Queue CRUD ───────────────────────────────────────────────────────────────
+/**
+ * Offline-created notes use a UUID accepted by the backend. Replaying the same
+ * create operation therefore becomes idempotent instead of producing a second
+ * note with a new server-side id.
+ */
+export function generateLocalNoteId(): string {
+  const randomUUID = typeof globalThis !== "undefined" ? globalThis.crypto?.randomUUID : undefined;
+  return typeof randomUUID === "function" ? randomUUID.call(globalThis.crypto) : uuidV4Fallback();
+}
 
-/** 从 localStorage 读取队列（带过期清理） */
+function persistQueue(items: OfflineQueueItem[]): void {
+  try {
+    const key = getOfflineQueueStorageKey();
+    if (items.length === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(items));
+  } catch (error) {
+    console.warn("[offlineQueue] persistQueue failed:", error);
+  }
+}
+
 export function getQueue(): OfflineQueueItem[] {
   try {
     const key = getOfflineQueueStorageKey();
     let items = readQueueFromKey(key);
-
-    // 兼容升级：旧版只有一个全局 key。若当前 scoped key 为空，则把旧队列
-    // 迁移到当前登录上下文，然后删除旧 key，避免之后切账号/切服务器误 flush。
     if (items.length === 0) {
       const legacy = readQueueFromKey(LEGACY_STORAGE_KEY);
       if (legacy.length > 0) {
@@ -163,35 +176,27 @@ export function getQueue(): OfflineQueueItem[] {
         localStorage.removeItem(LEGACY_STORAGE_KEY);
       }
     }
-
-    const now = Date.now();
-    // 过滤过期项
-    const valid = items.filter((item) => now - item.enqueuedAt < MAX_AGE_MS);
-    if (valid.length !== items.length) {
-      // 有过期项被清理，持久化
-      persistQueue(valid);
-    }
-    return valid;
+    return items;
   } catch {
     return [];
   }
 }
 
-/** 持久化队列到 localStorage */
-function persistQueue(items: OfflineQueueItem[]): void {
-  try {
-    const key = getOfflineQueueStorageKey();
-    if (items.length === 0) {
-      localStorage.removeItem(key);
-    } else {
-      localStorage.setItem(key, JSON.stringify(items));
-    }
-  } catch (e) {
-    console.warn("[offlineQueue] persistQueue failed:", e);
-  }
+function clearFailureState(item: OfflineQueueItem): OfflineQueueItem {
+  const next = { ...item };
+  delete next.conflict;
+  delete next.blocked;
+  delete next.retryable;
+  delete next.errorCode;
+  delete next.serverVersion;
+  delete next.localPayload;
+  delete next.failedAt;
+  delete next.lastAttemptAt;
+  delete next.lastHttpStatus;
+  delete next.message;
+  return next;
 }
 
-/** 入队一条操作 */
 export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retryCount">): void {
   const queue = getQueue();
   const newItem: OfflineQueueItem = {
@@ -201,20 +206,46 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
     retryCount: 0,
   };
 
-  // 合并策略：同一 noteId 的 updateNote 只保留最后一次。
-  // 但 conflict 项保存的是用户可能还没处理的本地内容，不能被后续入队覆盖。
   if (newItem.type === "updateNote") {
-    const existIdx = queue.findIndex(
-      (q) => q.type === "updateNote" && q.noteId === newItem.noteId && !q.conflict,
+    const createIndex = queue.findIndex(
+      (queued) => queued.type === "createNote" && queued.noteId === newItem.noteId && !queued.conflict,
     );
-    if (existIdx !== -1) {
-      // 保留最早的入队时间（用于过期判定），但用最新的 body
-      newItem.enqueuedAt = queue[existIdx].enqueuedAt;
-      newItem.retryCount = queue[existIdx].retryCount;
-      queue[existIdx] = newItem;
+    if (createIndex !== -1) {
+      const existing = clearFailureState(queue[createIndex]);
+      queue[createIndex] = {
+        ...existing,
+        body: { ...(existing.body || {}), ...(newItem.body || {}) },
+        retryCount: 0,
+      };
       persistQueue(queue);
       notifyListeners();
       return;
+    }
+
+    const updateIndex = queue.findIndex(
+      (queued) => queued.type === "updateNote" && queued.noteId === newItem.noteId && !queued.conflict,
+    );
+    if (updateIndex !== -1) {
+      const existing = clearFailureState(queue[updateIndex]);
+      queue[updateIndex] = {
+        ...existing,
+        url: newItem.url,
+        method: newItem.method,
+        body: newItem.body,
+        retryCount: 0,
+      };
+      persistQueue(queue);
+      notifyListeners();
+      return;
+    }
+  }
+
+  if (newItem.type === "deleteNote") {
+    for (let index = queue.length - 1; index >= 0; index -= 1) {
+      const queued = queue[index];
+      if (queued.noteId === newItem.noteId && queued.type === "updateNote" && !queued.conflict) {
+        queue.splice(index, 1);
+      }
     }
   }
 
@@ -223,39 +254,40 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
   notifyListeners();
 }
 
-/** 移除指定项 */
 export function dequeue(itemId: string): void {
   const queue = getQueue();
-  const filtered = queue.filter((q) => q.id !== itemId);
-  persistQueue(filtered);
+  persistQueue(queue.filter((item) => item.id !== itemId));
   notifyListeners();
 }
 
-/** 更新指定项（用于增加 retryCount 等） */
 export function updateItem(itemId: string, patch: Partial<OfflineQueueItem>): void {
   const queue = getQueue();
-  const idx = queue.findIndex((q) => q.id === itemId);
-  if (idx === -1) return;
-  queue[idx] = { ...queue[idx], ...patch };
+  const index = queue.findIndex((item) => item.id === itemId);
+  if (index === -1) return;
+  queue[index] = { ...queue[index], ...patch };
   persistQueue(queue);
+  notifyListeners();
 }
 
 function markVersionConflict(item: OfflineQueueItem, currentVersion?: number): void {
   const localPayload = item.body ? { ...item.body } : null;
-  const message = "Version conflict detected. Auto overwrite was stopped. Please refresh or resolve from version history.";
+  const message = "版本冲突：已停止自动覆盖，并保留本地内容等待处理。";
   updateItem(item.id, {
     conflict: true,
+    blocked: true,
+    retryable: false,
     errorCode: "VERSION_CONFLICT",
     serverVersion: currentVersion,
     localPayload,
     failedAt: Date.now(),
+    lastAttemptAt: Date.now(),
+    lastHttpStatus: 409,
     message,
   });
   console.warn("[offlineQueue] VERSION_CONFLICT stopped auto overwrite:", {
     noteId: item.noteId,
     localVersion: item.body?.version,
     serverVersion: currentVersion,
-    localPayload,
   });
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(OFFLINE_QUEUE_CONFLICT_EVENT, {
@@ -270,26 +302,86 @@ function markVersionConflict(item: OfflineQueueItem, currentVersion?: number): v
   }
 }
 
-/** 获取队列长度 */
+function messageFromResponse(status: number, data: any): string {
+  const detail = data?.error || data?.message || data?.code;
+  return detail ? `HTTP ${status}: ${String(detail)}` : `HTTP ${status}`;
+}
+
+function markBlockedFailure(
+  item: OfflineQueueItem,
+  errorCode: string,
+  message: string,
+  options: { retryable: boolean; status?: number; retryCount?: number },
+): void {
+  updateItem(item.id, {
+    blocked: true,
+    retryable: options.retryable,
+    errorCode,
+    message,
+    failedAt: Date.now(),
+    lastAttemptAt: Date.now(),
+    lastHttpStatus: options.status,
+    retryCount: options.retryCount ?? item.retryCount,
+    localPayload: item.body ? { ...item.body } : null,
+  });
+}
+
 export function getQueueLength(): number {
   return getQueue().length;
 }
 
-/** 清空队列 */
+export function getFailedQueueItems(): OfflineQueueItem[] {
+  return getQueue().filter(
+    (item) => item.conflict || item.blocked || !!item.errorCode || item.retryCount > 0,
+  );
+}
+
+export function retryQueueItem(itemId: string): boolean {
+  const queue = getQueue();
+  const index = queue.findIndex((item) => item.id === itemId);
+  if (index === -1 || queue[index].conflict || queue[index].errorCode === "VERSION_CONFLICT") return false;
+  const reset = clearFailureState(queue[index]);
+  queue[index] = { ...reset, retryCount: 0, enqueuedAt: Date.now() };
+  persistQueue(queue);
+  notifyListeners();
+  return true;
+}
+
+export function retryFailedQueueItems(): number {
+  const queue = getQueue();
+  let changed = 0;
+  const next = queue.map((item) => {
+    const failed = item.blocked || !!item.errorCode || item.retryCount > 0;
+    if (!failed || item.conflict || item.errorCode === "VERSION_CONFLICT") return item;
+    changed += 1;
+    return { ...clearFailureState(item), retryCount: 0, enqueuedAt: Date.now() };
+  });
+  if (changed > 0) {
+    persistQueue(next);
+    notifyListeners();
+  }
+  return changed;
+}
+
+export function exportQueueDiagnostics(): string {
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    storageKey: getOfflineQueueStorageKey(),
+    pending: getQueueLength(),
+    items: getQueue(),
+  }, null, 2);
+}
+
 export function clearQueue(): void {
   persistQueue([]);
   notifyListeners();
 }
-
-// ─── 本地 ID → 真实 ID 映射 ────────────────────────────────────────────────────
 
 export function getLocalIdMap(): Record<string, string> {
   try {
     const key = getLocalIdMapStorageKey();
     const raw = localStorage.getItem(key);
     if (raw) return JSON.parse(raw);
-
-    // 兼容旧版全局 id map。只迁移一次到当前上下文，避免 local-* 映射跨服务器污染。
     const legacy = localStorage.getItem(LEGACY_LOCAL_ID_MAP_KEY);
     if (legacy) {
       localStorage.setItem(key, legacy);
@@ -305,10 +397,8 @@ export function getLocalIdMap(): Record<string, string> {
 export function setLocalIdMapping(localId: string, realId: string): void {
   const map = getLocalIdMap();
   map[localId] = realId;
-  try {
-    localStorage.setItem(getLocalIdMapStorageKey(), JSON.stringify(map));
-  } catch {}
-  // 更新队列中引用该 localId 的后续操作
+  try { localStorage.setItem(getLocalIdMapStorageKey(), JSON.stringify(map)); } catch { /* ignore */ }
+
   const queue = getQueue();
   let changed = false;
   for (const item of queue) {
@@ -318,190 +408,187 @@ export function setLocalIdMapping(localId: string, realId: string): void {
       changed = true;
     }
   }
-  if (changed) persistQueue(queue);
+  if (changed) {
+    persistQueue(queue);
+    notifyListeners();
+  }
 }
 
 export function clearLocalIdMap(): void {
-  try {
-    localStorage.removeItem(getLocalIdMapStorageKey());
-  } catch {}
+  try { localStorage.removeItem(getLocalIdMapStorageKey()); } catch { /* ignore */ }
 }
 
-// ─── Flush（重试执行队列） ──────────────────────────────────────────────────────
+let flushPromise: Promise<FlushResult> | null = null;
 
-let flushing = false;
-
-export type FlushResult = {
-  success: number;
-  failed: number;
-  remaining: number;
-};
-
-/**
- * 串行执行队列中的所有操作。
- * @param fetchFn  实际发送请求的函数（避免循环依赖，由调用方注入）
- * @returns 执行结果统计
- */
-export async function flushQueue(
-  fetchFn: (url: string, method: string, body: Record<string, unknown> | null) => Promise<{ ok: boolean; status: number; data?: any }>,
-): Promise<FlushResult> {
-  if (flushing) return { success: 0, failed: 0, remaining: getQueueLength() };
-  flushing = true;
-
+async function flushQueueInternal(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
   const result: FlushResult = { success: 0, failed: 0, remaining: 0 };
-
   try {
     const queue = getQueue();
-    if (queue.length === 0) {
-      return result;
-    }
-
     for (const item of queue) {
-      if (item.conflict || item.errorCode === "VERSION_CONFLICT") {
-        continue;
-      }
+      if (item.conflict || item.blocked || item.errorCode === "VERSION_CONFLICT") continue;
 
-      // 检查是否过期
       if (Date.now() - item.enqueuedAt >= MAX_AGE_MS) {
-        dequeue(item.id);
-        result.failed++;
+        markBlockedFailure(item, "QUEUE_ITEM_EXPIRED", "该操作已等待超过 7 天，已保留本地副本，请手动重试或导出诊断。", {
+          retryable: true,
+        });
+        result.failed += 1;
         continue;
       }
 
-      // 检查重试次数
       if (item.retryCount >= MAX_RETRY) {
-        dequeue(item.id);
-        result.failed++;
+        markBlockedFailure(item, "MAX_RETRY_REACHED", `已重试 ${item.retryCount} 次，已暂停自动重试并保留本地副本。`, {
+          retryable: true,
+        });
+        result.failed += 1;
         continue;
       }
 
       try {
-        const res = await fetchFn(item.url, item.method, item.body);
+        const replayBody = item.type === "createNote" && item.body && !item.body.id && !item.noteId.startsWith("local-")
+          ? { ...item.body, id: item.noteId }
+          : item.body;
+        const response = await fetchFn(item.url, item.method, replayBody, {
+          idempotencyKey: item.id,
+          item,
+        });
 
-        if (res.ok) {
-          // 成功
-          // 如果是 createNote 且 noteId 是本地 ID，记录映射
-          if (item.type === "createNote" && item.noteId.startsWith("local-") && res.data?.id) {
-            setLocalIdMapping(item.noteId, res.data.id);
+        if (response.ok) {
+          if (item.type === "createNote" && item.noteId.startsWith("local-") && response.data?.id) {
+            setLocalIdMapping(item.noteId, response.data.id);
           }
           dequeue(item.id);
-          result.success++;
-        } else if (res.status === 409 || res.data?.code === "VERSION_CONFLICT") {
-          const currentVersion = typeof res.data?.currentVersion === "number" ? res.data.currentVersion : undefined;
-          markVersionConflict(item, currentVersion);
-          result.failed++;
-        } else if (res.status === 404 && item.type === "deleteNote") {
-          // 已被删除，视为成功
-          dequeue(item.id);
-          result.success++;
-        } else if (res.status === 404 && item.type === "updateNote") {
-          // 笔记已不存在，放弃
-          dequeue(item.id);
-          result.failed++;
-        } else if (res.status >= 400 && res.status < 500) {
-          // 4xx 客户端错误（非 409/404）：不可恢复，丢弃
-          dequeue(item.id);
-          result.failed++;
-        } else {
-          // 5xx / 其他网络问题：保留，下次重试
-          updateItem(item.id, { retryCount: item.retryCount + 1 });
-          result.failed++;
-          // 5xx 意味着服务器有问题，后续项也可能失败，break 避免无意义轰炸
-          break;
+          result.success += 1;
+          continue;
         }
-      } catch {
-        // 网络错误（仍然离线）：停止 flush
-        updateItem(item.id, { retryCount: item.retryCount + 1 });
-        result.failed++;
+
+        if (item.type === "createNote" && response.status === 409 && response.data?.code === "NOTE_ID_CONFLICT") {
+          dequeue(item.id);
+          result.success += 1;
+          continue;
+        }
+
+        if (response.status === 409 || response.data?.code === "VERSION_CONFLICT") {
+          const currentVersion = typeof response.data?.currentVersion === "number"
+            ? response.data.currentVersion
+            : undefined;
+          markVersionConflict(item, currentVersion);
+          result.failed += 1;
+          continue;
+        }
+
+        if (response.status === 404 && item.type === "deleteNote") {
+          dequeue(item.id);
+          result.success += 1;
+          continue;
+        }
+
+        if (response.status === 404 && item.type === "updateNote") {
+          markBlockedFailure(item, "NOTE_NOT_FOUND", "服务端已不存在该笔记，更新未丢弃；可导出本地内容后处理。", {
+            retryable: false,
+            status: response.status,
+          });
+          result.failed += 1;
+          continue;
+        }
+
+        if (response.status >= 400 && response.status < 500) {
+          const code = String(response.data?.code || `HTTP_${response.status}`);
+          markBlockedFailure(item, code, messageFromResponse(response.status, response.data), {
+            retryable: false,
+            status: response.status,
+          });
+          result.failed += 1;
+          continue;
+        }
+
+        const retryCount = item.retryCount + 1;
+        updateItem(item.id, {
+          retryCount,
+          blocked: retryCount >= MAX_RETRY,
+          retryable: true,
+          errorCode: retryCount >= MAX_RETRY ? "MAX_RETRY_REACHED" : `HTTP_${response.status || 500}`,
+          message: messageFromResponse(response.status || 500, response.data),
+          failedAt: Date.now(),
+          lastAttemptAt: Date.now(),
+          lastHttpStatus: response.status,
+          localPayload: item.body ? { ...item.body } : null,
+        });
+        result.failed += 1;
+        break;
+      } catch (error) {
+        const retryCount = item.retryCount + 1;
+        const message = error instanceof Error ? error.message : String(error || "Network error");
+        updateItem(item.id, {
+          retryCount,
+          blocked: retryCount >= MAX_RETRY,
+          retryable: true,
+          errorCode: retryCount >= MAX_RETRY ? "MAX_RETRY_REACHED" : "NETWORK_ERROR",
+          message,
+          failedAt: Date.now(),
+          lastAttemptAt: Date.now(),
+          localPayload: item.body ? { ...item.body } : null,
+        });
+        result.failed += 1;
         break;
       }
     }
   } finally {
-    flushing = false;
     result.remaining = getQueueLength();
     notifyListeners();
   }
-
   return result;
 }
 
-// ─── Event / Subscription ─────────────────────────────────────────────────────
+export function flushQueue(fetchFn: OfflineQueueFetch): Promise<FlushResult> {
+  if (flushPromise) return flushPromise;
+  flushPromise = flushQueueInternal(fetchFn).finally(() => {
+    flushPromise = null;
+  });
+  return flushPromise;
+}
 
 type Listener = (count: number) => void;
 const listeners = new Set<Listener>();
 
-export function subscribe(fn: Listener): () => void {
-  listeners.add(fn);
-  return () => { listeners.delete(fn); };
+export function subscribe(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
 }
 
 function notifyListeners(): void {
   const count = getQueueLength();
-  listeners.forEach((fn) => fn(count));
+  listeners.forEach((listener) => {
+    try { listener(count); } catch { /* listener isolation */ }
+  });
 }
 
-// ─── 判断是否该入队的工具 ──────────────────────────────────────────────────────
-
-/**
- * 判断一个失败的请求是否应该入队离线重试。
- * 条件：
- *   1) 是写入类请求（POST/PUT/DELETE）
- *   2) 是笔记相关 URL（/notes 或 /notes/:id）
- *   3) 失败原因是网络不可达 或 服务器 5xx
- */
-export function shouldEnqueue(
-  url: string,
-  method: string,
-  error: any,
-): boolean {
-  // 只拦截写入方法
-  const m = method.toUpperCase();
-  if (m !== "POST" && m !== "PUT" && m !== "DELETE") return false;
-
-  // 只拦截笔记相关 URL
+export function shouldEnqueue(url: string, method: string, error: any): boolean {
+  const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod !== "POST" && normalizedMethod !== "PUT" && normalizedMethod !== "DELETE") return false;
   if (!isNotesMutationUrl(url)) return false;
-
-  // 判断错误类型
   if (isNetworkError(error)) return true;
-  if (error?.status >= 500) return true;
-
-  return false;
+  return error?.status >= 500;
 }
 
-/** 判断 URL 是否是笔记写入相关 */
 function isNotesMutationUrl(url: string): boolean {
-  // /notes, /notes/:id, /notes/:id/... 但排除特殊路径如 /notes/reorder/batch, /notes/trash/empty
-  if (/^\/notes(\/[^/]+)?$/.test(url)) return true;
-  return false;
+  return /^\/notes(\/[^/]+)?$/.test(url);
 }
 
-/** 判断是否为网络错误（fetch 抛出，而非服务端返回） */
 export function isNetworkError(error: any): boolean {
   if (!error) return false;
-  // fetch 在断网时抛 TypeError: Failed to fetch / Network request failed
-  if (error instanceof TypeError) return true;
-  if (error.name === "TypeError") return true;
-  // AbortError 不算
+  if (error instanceof TypeError || error.name === "TypeError") return true;
   if (error.name === "AbortError") return false;
-  // 没有 status 的错误通常是网络问题
-  if (!error.status && error.message && /fetch|network|ERR_/i.test(error.message)) return true;
-  return false;
+  return !error.status && !!error.message && /fetch|network|ERR_/i.test(error.message);
 }
 
-/**
- * 从 URL + method 推断操作类型
- */
 export function inferMutationType(url: string, method: string): OfflineMutationType | null {
-  const m = method.toUpperCase();
-  if (m === "POST" && url === "/notes") return "createNote";
-  if (m === "PUT" && /^\/notes\/[^/]+$/.test(url)) return "updateNote";
-  if (m === "DELETE" && /^\/notes\/[^/]+$/.test(url)) return "deleteNote";
+  const normalizedMethod = method.toUpperCase();
+  if (normalizedMethod === "POST" && url === "/notes") return "createNote";
+  if (normalizedMethod === "PUT" && /^\/notes\/[^/]+$/.test(url)) return "updateNote";
+  if (normalizedMethod === "DELETE" && /^\/notes\/[^/]+$/.test(url)) return "deleteNote";
   return null;
 }
 
-/**
- * 从 URL 中提取笔记 ID
- */
 export function extractNoteId(url: string): string {
   const match = url.match(/^\/notes\/([^/?]+)/);
   return match ? match[1] : "";
