@@ -1588,7 +1588,7 @@ export const api = {
   },
   // Task reminders
   getRecentReminders: (since: number) =>
-    request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number }> }>(
+    request<{ reminders: Array<{ reminderId: string; taskId: string; taskTitle: string; triggeredAt: number; type?: string }> }>(
       `/task-reminders/recent?since=${since}`
     ),
   getTaskReminders: (taskId: string) =>

@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server";
+import "./runtime/task-stats-hardening";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
@@ -492,6 +493,17 @@ app.route("/api/settings", settingsRouter);
 app.route("/api/fonts", fontsRouter);
 app.route("/api/attachments", attachmentsRouter);
 app.route("/api/task-attachments", taskAttachmentsRouter);
+// 必须先于 /api/task-reminders 的 /:taskId 路由注册，否则 recent 会被当成任务 ID。
+app.get("/api/task-reminders/recent", (c) => {
+  const userId = c.req.header("X-User-Id");
+  if (!userId) return c.json({ error: "Unauthorized" }, 401);
+  const since = c.req.query("since");
+  const sinceMs = since ? Number(since) : 0;
+  const mine = recentReminders
+    .filter((r) => r.userId === userId && r._triggeredAt > sinceMs)
+    .map((r) => ({ reminderId: r.reminderId, taskId: r.taskId, taskTitle: r.taskTitle, triggeredAt: r._triggeredAt, type: r.type || "task_reminder" }));
+  return c.json({ reminders: mine });
+});
 app.route("/api/task-reminders", taskRemindersRouter);
 app.route("/api/task-projects", taskProjectsRouter);
 app.route("/api/task-templates", taskTemplatesRouter);
@@ -546,19 +558,6 @@ setInterval(() => {
     console.error("[reminder] scan failed:", e);
   }
 }, 30000);
-
-// Endpoint for frontend polling of recently triggered reminders
-app.get("/api/task-reminders/recent", (c) => {
-  const userId = c.req.header("X-User-Id");
-  if (!userId) return c.json({ error: "Unauthorized" }, 401);
-  const since = c.req.query("since");
-  const sinceMs = since ? Number(since) : 0;
-  const mine = recentReminders
-    .filter((r) => r.userId === userId && r._triggeredAt > sinceMs)
-    .map((r) => ({ reminderId: r.reminderId, taskId: r.taskId, taskTitle: r.taskTitle, triggeredAt: r._triggeredAt, type: r.type || "task_reminder" }));
-  return c.json({ reminders: mine });
-});
-
 
 // 获取当前登录用户信息
 app.get("/api/me", (c) => {

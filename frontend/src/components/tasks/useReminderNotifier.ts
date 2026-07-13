@@ -43,14 +43,6 @@ function sendNotification(title: string, body: string) {
   }
 }
 
-function getAuthHeaders(): Record<string, string> {
-  // Try to get auth token from localStorage or cookie
-  const token = localStorage.getItem("token") || localStorage.getItem("authToken") || "";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  return headers;
-}
-
 export function useReminderNotifier() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScanRef = useRef<number>(Date.now());
@@ -73,31 +65,25 @@ export function useReminderNotifier() {
       try {
         // Poll backend recent reminders endpoint
         try {
-          const res = await fetch(
-            `/api/task-reminders/recent?since=${lastScanRef.current}`,
-            { headers: getAuthHeaders() }
-          );
-          if (res.ok) {
-            const data = await res.json();
-            const recent: RecentReminder[] = data.reminders || [];
-            for (const r of recent) {
-              if (notifiedSet.has(r.reminderId)) continue;
-              notifiedSet.add(r.reminderId);
-              const notifType = r.type || "task_reminder";
-              let title: string;
-              let body: string;
-              if (notifType === "dependency_ready") {
-                title = `\u2705 ${i18n.t("tasks.notifications.dependencyReadyTitle")}`;
-                body = i18n.t("tasks.notifications.dependencyReadyBody", { taskTitle: r.taskTitle });
-              } else if (notifType === "overdue_daily") {
-                title = `\u26A0\uFE0F ${i18n.t("tasks.notifications.overdueDailyTitle")}`;
-                body = i18n.t("tasks.notifications.overdueDailyBody", { taskTitle: r.taskTitle });
-              } else {
-                title = `\u23F0 ${i18n.t("tasks.notifications.taskReminderTitle")}`;
-                body = i18n.t("tasks.notifications.taskReminderBody", { taskTitle: r.taskTitle });
-              }
-              sendNotification(title, body);
+          const { reminders } = await api.getRecentReminders(lastScanRef.current);
+          const recent: RecentReminder[] = reminders || [];
+          for (const r of recent) {
+            if (notifiedSet.has(r.reminderId)) continue;
+            notifiedSet.add(r.reminderId);
+            const notifType = r.type || "task_reminder";
+            let title: string;
+            let body: string;
+            if (notifType === "dependency_ready") {
+              title = `\u2705 ${i18n.t("tasks.notifications.dependencyReadyTitle")}`;
+              body = i18n.t("tasks.notifications.dependencyReadyBody", { taskTitle: r.taskTitle });
+            } else if (notifType === "overdue_daily") {
+              title = `\u26A0\uFE0F ${i18n.t("tasks.notifications.overdueDailyTitle")}`;
+              body = i18n.t("tasks.notifications.overdueDailyBody", { taskTitle: r.taskTitle });
+            } else {
+              title = `\u23F0 ${i18n.t("tasks.notifications.taskReminderTitle")}`;
+              body = i18n.t("tasks.notifications.taskReminderBody", { taskTitle: r.taskTitle });
             }
+            sendNotification(title, body);
           }
         } catch {
           // ignore recent reminders polling failure

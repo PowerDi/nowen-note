@@ -186,11 +186,12 @@ describe("useReminderNotifier type handling", () => {
     expect(type || "task_reminder").toBe("task_reminder");
   });
 
-  it("recent endpoint still only requests /recent (no /test-now)", () => {
+  it("uses the authenticated API client for recent reminders", () => {
     const hookSource = require("fs").readFileSync(
       "src/components/tasks/useReminderNotifier.ts", "utf8"
     );
     expect(hookSource).not.toContain("/test-now");
-    expect(hookSource).toContain("/api/task-reminders/recent");
+    expect(hookSource).toContain("api.getRecentReminders(lastScanRef.current)");
+    expect(hookSource).not.toContain("function getAuthHeaders");
   });
 });
