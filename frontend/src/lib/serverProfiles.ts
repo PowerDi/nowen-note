@@ -184,8 +184,12 @@ export function bootstrapServerProfiles(): ServerProfile[] {
 }
 
 export function listServerProfiles(): ServerProfile[] {
-  const profiles = readStoredProfiles();
-  return profiles.length ? profiles : bootstrapServerProfiles();
+  try {
+    if (localStorage.getItem(STORAGE_KEY) !== null) return readStoredProfiles();
+  } catch {
+    /* storage 不可用时沿用原有初始化降级逻辑 */
+  }
+  return bootstrapServerProfiles();
 }
 
 export function getActiveServerProfile(): ServerProfile | null {

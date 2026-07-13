@@ -577,6 +577,10 @@ export default function EditorPane() {
         });
       } catch { /* ignore */ }
       // 2) ���߶��У��´����� flush��
+      // 在线重载、热更新和切后台会触发此路径；常规保存失败会自行入队，
+      // 因此在线时只保留草稿，避免将旧版本快照留待下次自动重放。
+      if (navigator.onLine) return;
+
       try {
         enqueueOfflineMutation({
           type: "updateNote",

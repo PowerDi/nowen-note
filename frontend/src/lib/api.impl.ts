@@ -7,6 +7,7 @@ import {
   inferMutationType as _inferMutationType,
   extractNoteId as _extractNoteId,
   generateLocalNoteId,
+  discardNoteQueueItems,
 } from "@/lib/offlineQueue";
 import {
   readNotebooks as _readNotebooks,
@@ -518,6 +519,41 @@ async function safeJson<T>(res: Response, fullUrl: string): Promise<T> {
   }
 }
 
+function reconcileAcknowledgedDeletion(
+  url: string,
+  method: string,
+  requestBody: BodyInit | null | undefined,
+  responseData: unknown,
+): void {
+  const data = responseData as { noteIds?: unknown; trashedNoteIds?: unknown } | null;
+
+  if (method === "PUT" && /^\/notes\/[^/]+$/.test(url) && typeof requestBody === "string") {
+    try {
+      const body = JSON.parse(requestBody) as { isTrashed?: unknown };
+      if (body.isTrashed === 1) discardNoteQueueItems([_extractNoteId(url)]);
+    } catch {
+      /* 非 JSON 请求体与笔记删除协调无关 */
+    }
+    return;
+  }
+
+  if (method !== "DELETE") return;
+
+  if (/^\/notes\/[^/]+$/.test(url)) {
+    discardNoteQueueItems([_extractNoteId(url)]);
+    return;
+  }
+
+  if (url === "/notes/trash/empty" && Array.isArray(data?.noteIds)) {
+    discardNoteQueueItems(data.noteIds.filter((id): id is string => typeof id === "string"));
+    return;
+  }
+
+  if (/^\/notebooks\/[^/]+$/.test(url) && Array.isArray(data?.trashedNoteIds)) {
+    discardNoteQueueItems(data.trashedNoteIds.filter((id): id is string => typeof id === "string"));
+  }
+}
+
 function getToken(): string | null {
   return localStorage.getItem("nowen-token");
 }
@@ -824,7 +860,9 @@ async function request<T>(url: string, options?: RequestOptions): Promise<T> {
 
     throw error;
   }
-  return safeJson<T>(res, fullUrl);
+  const data = await safeJson<T>(res, fullUrl);
+  reconcileAcknowledgedDeletion(url, method, restOptions?.body, data);
+  return data;
 }
 
 // ─── 离线入队辅助 ────────────────────────────────────────────────────────────────
@@ -1373,6 +1411,7 @@ export const api = {
       success: boolean;
       count: number;
       skipped: number;
+      noteIds: string[];
       removedFiles?: number;
       /** 后端是否做了 WAL checkpoint（把 -wal 并回主文件并截断） */
       walTruncated?: boolean;

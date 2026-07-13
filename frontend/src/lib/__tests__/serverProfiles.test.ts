@@ -7,6 +7,7 @@ import {
   listServerProfiles,
   markServerProfileActive,
   removeServerProfile,
+  subscribeServerProfiles,
   upsertServerProfile,
 } from "@/lib/serverProfiles";
 
@@ -75,5 +76,19 @@ describe("serverProfiles", () => {
 
     expect(listServerProfiles()).toHaveLength(1);
     expect(listServerProfiles()[0].name).toBe("Office");
+  });
+
+  it("treats an empty stored profile list as initialized without rebroadcasting forever", () => {
+    let notifications = 0;
+    const unsubscribe = subscribeServerProfiles(() => {
+      notifications += 1;
+      if (notifications < 3) listServerProfiles();
+    });
+
+    bootstrapServerProfiles();
+    unsubscribe();
+
+    expect(notifications).toBe(1);
+    expect(listServerProfiles()).toEqual([]);
   });
 });

@@ -34,6 +34,33 @@ function itemTypeLabel(item: OfflineQueueItem): string {
   return "更新笔记";
 }
 
+function queueItemPayload(item: OfflineQueueItem): Record<string, unknown> {
+  return item.localPayload || item.body || {};
+}
+
+export function getQueueItemNoteTitle(item: OfflineQueueItem): string {
+  const title = queueItemPayload(item).title;
+  return typeof title === "string" && title.trim() ? title.trim() : "未命名笔记";
+}
+
+export function getQueueItemNotePreview(item: OfflineQueueItem): string {
+  const payload = queueItemPayload(item);
+  const raw = typeof payload.contentText === "string"
+    ? payload.contentText
+    : typeof payload.content === "string"
+      ? payload.content
+      : "";
+  const normalized = raw.replace(/\s+/g, " ").trim();
+  return normalized.length > 120 ? `${normalized.slice(0, 120)}…` : normalized;
+}
+
+export function getQueueItemStatusMessage(item: OfflineQueueItem): string {
+  if (item.conflict || item.errorCode === "VERSION_CONFLICT") {
+    return "已停止自动覆盖，本地内容已保留，请处理版本冲突。";
+  }
+  return item.message || (item.blocked ? "已暂停自动重试" : "等待服务器确认");
+}
+
 function downloadDiagnostics(): void {
   const blob = new Blob([exportQueueDiagnostics()], { type: "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
@@ -100,7 +127,9 @@ export default function OfflineIndicator() {
         label: conflictCount > 0
           ? `${conflictCount} 条同步冲突待处理`
           : `${Math.max(failedItems.length, pendingCount)} 条同步失败`,
-        description: summary.lastError || failedItems[0]?.message || "操作已保留在本地，未被静默丢弃。",
+        description: conflictCount > 0
+          ? "已停止自动覆盖，本地内容已保留。"
+          : summary.lastError || failedItems[0]?.message || "操作已保留在本地，未被静默丢弃。",
       };
     }
     if (pendingCount > 0) {
@@ -195,12 +224,17 @@ export default function OfflineIndicator() {
                 {queue.map((item) => {
                   const isConflict = item.conflict || item.errorCode === "VERSION_CONFLICT";
                   const canRetry = isOnline && !isConflict;
+                  const noteTitle = getQueueItemNoteTitle(item);
+                  const notePreview = getQueueItemNotePreview(item);
                   return (
                     <article key={item.id} className="rounded-xl border border-app-border bg-app-bg/60 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-tx-primary" title={noteTitle}>
+                            {noteTitle}
+                          </p>
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-semibold text-tx-primary">{itemTypeLabel(item)}</span>
+                            <span className="text-[11px] text-tx-tertiary">{itemTypeLabel(item)}</span>
                             <span className="rounded-full bg-app-hover px-2 py-0.5 text-[10px] text-tx-tertiary">
                               重试 {item.retryCount} 次
                             </span>
@@ -210,12 +244,22 @@ export default function OfflineIndicator() {
                               </span>
                             )}
                           </div>
-                          <p className="mt-1 truncate font-mono text-[10px] text-tx-tertiary" title={item.noteId}>
-                            {item.noteId}
-                          </p>
+                          {notePreview && (
+                            <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-tx-secondary">
+                              {notePreview}
+                            </p>
+                          )}
                           <p className="mt-1.5 text-xs leading-5 text-tx-secondary">
-                            {item.message || (item.blocked ? "已暂停自动重试" : "等待服务器确认")}
+                            {getQueueItemStatusMessage(item)}
                           </p>
+                          <details className="mt-1.5 text-[10px] text-tx-tertiary">
+                            <summary className="cursor-pointer select-none hover:text-tx-secondary">技术详情</summary>
+                            <div className="mt-1 space-y-0.5 break-all font-mono">
+                              <p>笔记 ID：{item.noteId}</p>
+                              {item.errorCode && <p>错误码：{item.errorCode}</p>}
+                              {typeof item.serverVersion === "number" && <p>服务器版本：{item.serverVersion}</p>}
+                            </div>
+                          </details>
                         </div>
                         <button
                           type="button"

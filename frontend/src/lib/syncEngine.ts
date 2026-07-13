@@ -17,10 +17,12 @@ import {
 } from "@/lib/localStore";
 import {
   flushQueue,
+  discardNoteQueueItems,
   getFailedQueueItems,
   getQueue as getOfflineQueue,
   getQueueLength,
   subscribe as subscribeOfflineQueue,
+  type OfflineQueueItem,
 } from "@/lib/offlineQueue";
 import { offlineQueueFetch } from "@/lib/offlineQueueFetch";
 import type { Note, User } from "@/types";
@@ -36,6 +38,7 @@ export interface SyncSummary {
   state: SyncState;
   lastError: string | null;
   pending: number;
+  versionConflicts: number;
   lastSyncAt: number | null;
 }
 
@@ -44,7 +47,14 @@ let lastSyncAtCache: number | null = null;
 let queueSubscribed = false;
 
 function buildSummary(): SyncSummary {
-  return { state, lastError, pending: getQueueLength(), lastSyncAt: lastSyncAtCache };
+  const pending = getQueueLength();
+  return {
+    state,
+    lastError,
+    pending,
+    versionConflicts: countVersionConflicts(getFailedQueueItems()),
+    lastSyncAt: lastSyncAtCache,
+  };
 }
 
 function notifySummary(): void {
@@ -65,7 +75,7 @@ function setState(next: SyncState, error?: string): void {
 
 function describePendingQueue(pending: number): string {
   const failed = getFailedQueueItems();
-  const conflicts = failed.filter((item) => item.conflict || item.errorCode === "VERSION_CONFLICT").length;
+  const conflicts = countVersionConflicts(failed);
   const blocked = failed.filter((item) => item.blocked && !item.conflict).length;
   if (conflicts > 0) {
     return `仍有 ${pending} 条待同步操作，其中 ${conflicts} 条存在版本冲突；本地内容已保留，请在同步状态面板处理。`;
@@ -74,6 +84,48 @@ function describePendingQueue(pending: number): string {
     return `仍有 ${pending} 条待同步操作，其中 ${blocked} 条已暂停自动重试；请查看失败原因后重试或导出诊断。`;
   }
   return `仍有 ${pending} 条待同步操作，服务器尚未确认完成，请稍后重试。`;
+}
+
+export function countVersionConflicts(
+  items: ReadonlyArray<Pick<OfflineQueueItem, "conflict" | "errorCode">>,
+): number {
+  return items.filter((item) => item.conflict || item.errorCode === "VERSION_CONFLICT").length;
+}
+
+export function findLocallyDeletedQueuedNoteIds(
+  localNotes: ReadonlyArray<{ id: string; isTrashed: number }>,
+  queuedItems: ReadonlyArray<{ noteId: string }>,
+): string[] {
+  const queuedIds = new Set(queuedItems.map((item) => item.noteId));
+  return localNotes
+    .filter((note) => note.isTrashed === 1 && queuedIds.has(note.id))
+    .map((note) => note.id);
+}
+
+export async function findServerDeletedQueuedNoteIds(
+  remoteNoteIds: ReadonlySet<string>,
+  queuedItems: ReadonlyArray<Pick<OfflineQueueItem, "noteId" | "type" | "conflict" | "errorCode">>,
+  fetchNote: (noteId: string) => Promise<{ isTrashed?: number }>,
+): Promise<string[]> {
+  const candidates = [...new Set(queuedItems
+    .filter((item) => (
+      item.type === "updateNote"
+      && (item.conflict || item.errorCode === "VERSION_CONFLICT")
+      && !remoteNoteIds.has(item.noteId)
+    ))
+    .map((item) => item.noteId))];
+  const deleted: string[] = [];
+
+  for (const noteId of candidates) {
+    try {
+      const note = await fetchNote(noteId);
+      if (note.isTrashed === 1) deleted.push(noteId);
+    } catch (error) {
+      if ((error as { status?: number })?.status === 404) deleted.push(noteId);
+    }
+  }
+
+  return deleted;
 }
 
 export function getSyncState(): { state: SyncState; lastError: string | null } {
@@ -122,7 +174,19 @@ async function pullServerSnapshot(): Promise<void> {
 
   if (notesResult.status === "fulfilled") {
     const local = await getAllNotes();
+    // 兼容修复前遗留状态：本地缓存已经明确记录为回收站的笔记，不应继续保留
+    // 它此前的更新冲突。不能仅根据远端普通列表缺失来判断，避免误删离线新建内容。
+    const locallyDeletedQueueIds = findLocallyDeletedQueuedNoteIds(local, getOfflineQueue());
+    discardNoteQueueItems(locallyDeletedQueueIds);
     const remoteIds = new Set(notesResult.value.map((note) => note.id));
+    // 历史版本可能在删除成功后仍留下冲突队列。对列表中缺失的冲突做轻量确认：
+    // 仅服务器明确返回 404 或回收站状态时清理，网络/权限异常继续保留本地内容。
+    const serverDeletedQueueIds = await findServerDeletedQueuedNoteIds(
+      remoteIds,
+      getOfflineQueue(),
+      (noteId) => api.getNoteSlim(noteId),
+    );
+    discardNoteQueueItems(serverDeletedQueueIds);
     const queuedIds = await getQueuedNoteIds();
     for (const note of local) {
       if (!remoteIds.has(note.id) && !queuedIds.has(note.id)) await deleteNote(note.id);
@@ -181,7 +245,8 @@ export async function bootstrap(user: User): Promise<void> {
     }
     await pullServerSnapshot();
     const pending = getQueueLength();
-    if (pending > 0) setState("error", describePendingQueue(pending));
+    const versionConflicts = countVersionConflicts(getFailedQueueItems());
+    if (pending > versionConflicts) setState("error", describePendingQueue(pending));
     else setState("ready");
   } catch (error) {
     console.warn("[syncEngine] bootstrap failed:", error);
@@ -192,13 +257,20 @@ export async function bootstrap(user: User): Promise<void> {
 export async function syncNow(): Promise<{
   ok: boolean;
   pending: number;
+  versionConflicts: number;
   lastSyncAt?: number;
   error?: string;
 }> {
   if (typeof navigator !== "undefined" && !navigator.onLine) {
     const error = "offline";
     setState("error", error);
-    return { ok: false, pending: getQueueLength(), lastSyncAt: lastSyncAtCache ?? undefined, error };
+    return {
+      ok: false,
+      pending: getQueueLength(),
+      versionConflicts: countVersionConflicts(getFailedQueueItems()),
+      lastSyncAt: lastSyncAtCache ?? undefined,
+      error,
+    };
   }
 
   setState("bootstrapping");
@@ -207,19 +279,26 @@ export async function syncNow(): Promise<{
     await pullServerSnapshot();
 
     const pending = getQueueLength();
-    if (pending > 0) {
+    const versionConflicts = countVersionConflicts(getFailedQueueItems());
+    if (pending > versionConflicts) {
       const error = describePendingQueue(pending);
       setState("error", error);
-      return { ok: false, pending, lastSyncAt: lastSyncAtCache ?? undefined, error };
+      return { ok: false, pending, versionConflicts, lastSyncAt: lastSyncAtCache ?? undefined, error };
     }
 
     setState("ready");
-    return { ok: true, pending: 0, lastSyncAt: lastSyncAtCache ?? undefined };
+    return { ok: true, pending, versionConflicts, lastSyncAt: lastSyncAtCache ?? undefined };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.warn("[syncEngine] syncNow failed:", error);
     setState("error", message);
-    return { ok: false, pending: getQueueLength(), lastSyncAt: lastSyncAtCache ?? undefined, error: message };
+    return {
+      ok: false,
+      pending: getQueueLength(),
+      versionConflicts: countVersionConflicts(getFailedQueueItems()),
+      lastSyncAt: lastSyncAtCache ?? undefined,
+      error: message,
+    };
   }
 }
 

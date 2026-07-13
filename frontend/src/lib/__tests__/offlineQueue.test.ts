@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clearQueue,
+  discardNoteQueueItems,
   enqueue,
   flushQueue,
   generateLocalNoteId,
@@ -82,6 +83,61 @@ describe("offlineQueue reliability", () => {
     expect(result).toEqual({ success: 0, failed: 0, remaining: 1 });
     expect(fetchFn).not.toHaveBeenCalled();
     expect(retryQueueItem(getQueue()[0].id)).toBe(false);
+  });
+
+  it("lets a later trash intent replace an earlier conflicted update", async () => {
+    enqueueUpdate("note-trash", 2);
+    await flushQueue(vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      data: { code: "VERSION_CONFLICT", currentVersion: 5 },
+    }));
+
+    enqueue({
+      type: "updateNote",
+      noteId: "note-trash",
+      url: "/notes/note-trash",
+      method: "PUT",
+      body: { isTrashed: 1 },
+    });
+
+    expect(getQueue()).toEqual([
+      expect.objectContaining({
+        noteId: "note-trash",
+        type: "updateNote",
+        body: { isTrashed: 1 },
+      }),
+    ]);
+    expect(getQueue()[0].conflict).toBeUndefined();
+  });
+
+  it("lets a permanent delete intent replace an earlier conflicted update", async () => {
+    enqueueUpdate("note-delete", 3);
+    await flushQueue(vi.fn().mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      data: { code: "VERSION_CONFLICT", currentVersion: 6 },
+    }));
+
+    enqueue({
+      type: "deleteNote",
+      noteId: "note-delete",
+      url: "/notes/note-delete",
+      method: "DELETE",
+      body: null,
+    });
+
+    expect(getQueue()).toEqual([
+      expect.objectContaining({ noteId: "note-delete", type: "deleteNote" }),
+    ]);
+  });
+
+  it("discards only queue items belonging to acknowledged deleted notes", () => {
+    enqueueUpdate("deleted-a", 1);
+    enqueueUpdate("kept-b", 1);
+
+    expect(discardNoteQueueItems(["deleted-a"])).toBe(1);
+    expect(getQueue().map((item) => item.noteId)).toEqual(["kept-b"]);
   });
 
   it("keeps normal server errors retryable", async () => {

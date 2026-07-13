@@ -732,19 +732,18 @@ function AppLayout() {
         </div>
       ) : (
         <div className="flex-1 flex relative overflow-hidden">
-          {/* 移动端列表页继续复用 NoteList；树形目录开关作用在侧边栏的笔记本目录。 */}
-          <div className={`
-            md:hidden flex-col shrink-0 h-full w-full
-            ${state.mobileView === "list" ? "flex" : "hidden"}
-          `}>
-            <NoteList />
-          </div>
-
-          {/* 桌面端：开启目录内联笔记时，普通浏览隐藏中间 NoteList，避免和 Sidebar 重复。 */}
-          {showDesktopNoteList && (
+          {/*
+            移动端与桌面端共用同一个 NoteList 实例。仅靠 CSS 隐藏两个独立实例会让
+            隐藏列表也执行数据请求，导致一次 refreshNotes 产生重复的 /api/notes 调用。
+          */}
+          {(state.mobileView === "list" || showDesktopNoteList) && (
             <div
-              className="hidden md:flex flex-col shrink-0 h-full"
-              style={{ width: `${state.noteListWidth}px` }}
+              className={`
+                flex-col shrink-0 h-full w-full md:w-[var(--note-list-width)]
+                ${state.mobileView === "list" ? "flex" : "hidden"}
+                ${showDesktopNoteList ? "md:flex" : "md:hidden"}
+              `}
+              style={{ "--note-list-width": `${state.noteListWidth}px` } as React.CSSProperties}
             >
               <NoteList />
             </div>

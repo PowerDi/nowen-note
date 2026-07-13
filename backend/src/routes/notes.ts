@@ -196,7 +196,7 @@ app.delete("/trash/empty", (c) => {
   ).get(userId) as { count: number }).count;
 
   if (targets.length === 0) {
-    return c.json({ success: true, count: 0, skipped });
+    return c.json({ success: true, count: 0, skipped, noteIds: [] });
   }
 
   const ids = targets.map((r) => r.id);
@@ -290,6 +290,7 @@ app.delete("/trash/empty", (c) => {
     success: true,
     count: ids.length,
     skipped,
+    noteIds: ids,
     removedFiles,
     // 让前端能感知"确实做了 checkpoint / VACUUM"，用于 toast 提示
     walTruncated,

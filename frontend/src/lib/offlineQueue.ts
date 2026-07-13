@@ -206,6 +206,18 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
     retryCount: 0,
   };
 
+  // 用户明确移入回收站时，删除意图优先于此前尚未处理的内容更新或版本冲突。
+  // 这里只替换同一笔记的 update，保留新的回收站操作等待服务器确认。
+  if (newItem.type === "updateNote" && newItem.body?.isTrashed === 1) {
+    const next = queue.filter(
+      (queued) => queued.noteId !== newItem.noteId || queued.type !== "updateNote",
+    );
+    next.push(newItem);
+    persistQueue(next);
+    notifyListeners();
+    return;
+  }
+
   if (newItem.type === "updateNote") {
     const createIndex = queue.findIndex(
       (queued) => queued.type === "createNote" && queued.noteId === newItem.noteId && !queued.conflict,
@@ -243,7 +255,7 @@ export function enqueue(item: Omit<OfflineQueueItem, "id" | "enqueuedAt" | "retr
   if (newItem.type === "deleteNote") {
     for (let index = queue.length - 1; index >= 0; index -= 1) {
       const queued = queue[index];
-      if (queued.noteId === newItem.noteId && queued.type === "updateNote" && !queued.conflict) {
+      if (queued.noteId === newItem.noteId && queued.type === "updateNote") {
         queue.splice(index, 1);
       }
     }
@@ -258,6 +270,20 @@ export function dequeue(itemId: string): void {
   const queue = getQueue();
   persistQueue(queue.filter((item) => item.id !== itemId));
   notifyListeners();
+}
+
+/** 服务器确认笔记已删除后，按 noteId 精准移除对应的全部队列记录。 */
+export function discardNoteQueueItems(noteIds: readonly string[]): number {
+  if (noteIds.length === 0) return 0;
+  const ids = new Set(noteIds);
+  const queue = getQueue();
+  const next = queue.filter((item) => !ids.has(item.noteId));
+  const removed = queue.length - next.length;
+  if (removed > 0) {
+    persistQueue(next);
+    notifyListeners();
+  }
+  return removed;
 }
 
 export function updateItem(itemId: string, patch: Partial<OfflineQueueItem>): void {

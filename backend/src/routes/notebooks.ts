@@ -743,6 +743,7 @@ app.delete("/:id", (c) => {
     success: true,
     softDeletedNotebookCount: nbIds.length,
     trashedNoteCount: trashedNoteIds.length,
+    trashedNoteIds,
   });
 });
 

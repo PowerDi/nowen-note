@@ -77,6 +77,10 @@ function SyncCenterCard() {
   const [summary, setSummary] = useState<SyncSummary>(() => getSyncSummary());
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState("");
+  const hasOnlyVersionConflicts = summary.pending > 0 && summary.pending === summary.versionConflicts;
+  const conflictMessage = hasOnlyVersionConflicts
+    ? `有 ${summary.versionConflicts} 条版本冲突待人工处理，本地内容已保留；刷新不会自动覆盖服务器内容。`
+    : "";
 
   useEffect(() => {
     void getLastSyncAt();
@@ -88,7 +92,11 @@ function SyncCenterCard() {
     setMessage("");
     const res = await syncNow();
     setSyncing(false);
-    setMessage(res.ok ? "同步完成" : `同步失败：${res.error || "unknown"}`);
+    if (res.ok && res.versionConflicts > 0) {
+      setMessage(`服务器内容已刷新；${res.versionConflicts} 条版本冲突未自动覆盖。`);
+    } else {
+      setMessage(res.ok ? "同步完成" : `同步失败：${res.error || "unknown"}`);
+    }
   };
 
   return (
@@ -100,7 +108,7 @@ function SyncCenterCard() {
             本地优先同步
           </span>
           <span className="text-zinc-300 dark:text-zinc-700">·</span>
-          <span>待同步 {summary.pending} 条</span>
+          <span>{hasOnlyVersionConflicts ? `待处理冲突 ${summary.versionConflicts} 条` : `待同步 ${summary.pending} 条`}</span>
           <span className="text-zinc-300 dark:text-zinc-700">·</span>
           <span className="min-w-0 truncate">上次同步 {formatSyncTime(summary.lastSyncAt)}</span>
           <span className="hidden sm:inline text-zinc-300 dark:text-zinc-700">·</span>
@@ -112,16 +120,17 @@ function SyncCenterCard() {
           type="button"
           onClick={handleSyncNow}
           disabled={syncing}
+          title={hasOnlyVersionConflicts ? "仅刷新服务器内容，不会自动覆盖版本冲突" : undefined}
           className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-xs font-medium transition-colors"
         >
           {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          立即同步
+          {hasOnlyVersionConflicts ? "刷新服务器内容" : "立即同步"}
         </button>
       </div>
 
-      {(summary.lastError || message) && (
-        <p className={`mt-1.5 text-xs ${summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
-          {summary.lastError ? `最近错误：${summary.lastError}` : message}
+      {(conflictMessage || summary.lastError || message) && (
+        <p className={`mt-1.5 text-xs ${conflictMessage || summary.lastError ? "text-amber-600 dark:text-amber-400" : "text-blue-600 dark:text-blue-400"}`}>
+          {conflictMessage || (summary.lastError ? `最近错误：${summary.lastError}` : message)}
         </p>
       )}
     </section>
