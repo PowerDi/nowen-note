@@ -2,46 +2,56 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before, beforeEach } from "node:test";
 import { Hono } from "hono";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-token-scope-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
 
-const { getDb } = await import("../src/db/schema");
-const { initApiTokensTable } = await import("../src/lib/api-tokens");
-const { enforceApiTokenAccess } = await import("../src/middleware/api-token-resource-scope");
+let db: any;
+let enforceApiTokenAccess: any;
 
-const db = getDb();
-initApiTokensTable(db);
+before(async () => {
+  const schemaModule = await import("../src/db/schema");
+  const tokenModule = await import("../src/lib/api-tokens");
+  const scopeModule = await import("../src/middleware/api-token-resource-scope");
+  db = schemaModule.getDb();
+  tokenModule.initApiTokensTable(db);
+  enforceApiTokenAccess = scopeModule.enforceApiTokenAccess;
 
-db.exec(`
-  INSERT OR IGNORE INTO users (id, username, passwordHash)
-  VALUES ('user-1', 'user-1', 'hash');
+  db.exec(`
+    INSERT OR IGNORE INTO users (id, username, passwordHash)
+    VALUES ('user-1', 'user-1', 'hash');
 
-  INSERT OR IGNORE INTO notebooks (id, userId, name, isDeleted)
-  VALUES
-    ('nb-a', 'user-1', 'Allowed', 0),
-    ('nb-b', 'user-1', 'Denied', 0),
-    ('nb-a-child', 'user-1', 'Allowed child', 0);
-  UPDATE notebooks SET parentId = 'nb-a' WHERE id = 'nb-a-child';
+    INSERT OR IGNORE INTO notebooks (id, userId, name, isDeleted)
+    VALUES
+      ('nb-a', 'user-1', 'Allowed', 0),
+      ('nb-b', 'user-1', 'Denied', 0),
+      ('nb-a-child', 'user-1', 'Allowed child', 0);
+    UPDATE notebooks SET parentId = 'nb-a' WHERE id = 'nb-a-child';
 
-  INSERT OR IGNORE INTO notes (id, userId, notebookId, title)
-  VALUES
-    ('note-a', 'user-1', 'nb-a', 'Allowed note'),
-    ('note-b', 'user-1', 'nb-b', 'Denied note'),
-    ('note-child', 'user-1', 'nb-a-child', 'Child note');
+    INSERT OR IGNORE INTO notes (id, userId, notebookId, title)
+    VALUES
+      ('note-a', 'user-1', 'nb-a', 'Allowed note'),
+      ('note-b', 'user-1', 'nb-b', 'Denied note'),
+      ('note-child', 'user-1', 'nb-a-child', 'Child note');
 
-  INSERT OR IGNORE INTO api_tokens
-    (id, userId, name, tokenHash, scopes, resourceMode)
-  VALUES
-    ('token-1', 'user-1', 'Agent', 'hash-token',
-     '["notes:read","notes:write","notebooks:read"]', 'restricted');
+    INSERT OR IGNORE INTO api_tokens
+      (id, userId, name, tokenHash, scopes, resourceMode)
+    VALUES
+      ('token-1', 'user-1', 'Agent', 'hash-token',
+       '["notes:read","notes:write","notebooks:read"]', 'restricted');
+  `);
+});
 
-  INSERT OR IGNORE INTO api_token_resources
-    (id, tokenId, resourceType, resourceId, permission, includeDescendants)
-  VALUES ('resource-1', 'token-1', 'notebook', 'nb-a', 'read', 1);
-`);
+beforeEach(() => {
+  db.prepare("DELETE FROM api_token_resources WHERE tokenId = ?").run("token-1");
+  db.prepare(`
+    INSERT INTO api_token_resources
+      (id, tokenId, resourceType, resourceId, permission, includeDescendants)
+    VALUES ('resource-1', 'token-1', 'notebook', 'nb-a', 'read', 1)
+  `).run();
+});
 
 function createApp() {
   const app = new Hono();
