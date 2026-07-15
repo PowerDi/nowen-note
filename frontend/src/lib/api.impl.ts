@@ -1393,10 +1393,32 @@ export const api = {
     request<Partial<Note> & { id: string; version: number; title: string; updatedAt: string }>(
       `/notes/${id}?slim=1`,
     ),
-  // BLOCK-LINKS-UI-01: 获取笔记的标题块列表（用于块级引用选择）
+  // BLOCK-LINKS-UI-01: 获取笔记的标题块列表（兼容旧菜单）
   getNoteHeadings: (id: string) =>
     request<{ headings: Array<{ blockId: string; level: number; text: string; order: number }> }>(
       `/notes/${id}/headings`,
+    ),
+  getNoteBlocks: (id: string, limit = 500) =>
+    request<{ noteId: string; blocks: Array<{
+      noteId: string;
+      blockId: string;
+      blockType: "heading" | "paragraph" | "listItem" | "taskItem" | "blockquote" | "codeBlock";
+      parentBlockId: string | null;
+      blockOrder: number;
+      plainText: string;
+      path: string;
+      startOffset: number | null;
+      endOffset: number | null;
+    }> }>(`/blocks/note/${id}?limit=${limit}`),
+  getBlock: (noteId: string, blockId: string) =>
+    request<any>(`/blocks/${noteId}/${encodeURIComponent(blockId)}`),
+  resolveNoteLink: (link: string) =>
+    request<any>(`/blocks/resolve?link=${encodeURIComponent(link)}`),
+  getBlockBacklinks: (noteId: string, blockId: string) =>
+    request<{ backlinks: any[] }>(`/blocks/${noteId}/${encodeURIComponent(blockId)}/backlinks`),
+  getKnowledgeGraph: (noteId?: string) =>
+    request<{ nodes: Array<{ id: string; title: string; notebookId: string }>; edges: any[] }>(
+      `/blocks/graph${noteId ? `?noteId=${encodeURIComponent(noteId)}` : ""}`,
     ),
   createNote: (data: Partial<Note>) => {
     // Phase D: 客户端提前生成 UUID v4，后端接受。

@@ -15,6 +15,7 @@ let closeDb: () => void;
 let blocksApp: Hono;
 let syncNoteBlocks: typeof import("../src/lib/noteBlocks").syncNoteBlocks;
 let syncNoteLinks: typeof import("../src/lib/noteLinks").syncNoteLinks;
+let syncAutomaticNoteLinkTitles: typeof import("../src/lib/noteLinkTitles").syncAutomaticNoteLinkTitles;
 
 const owner = "knowledge-owner";
 const viewer = "knowledge-viewer";
@@ -38,16 +39,18 @@ function tiptap(blockId: string, text: string, href?: string): string {
 }
 
 test.before(async () => {
-  const [schema, blocks, blockRoute, noteLinks] = await Promise.all([
+  const [schema, blocks, blockRoute, noteLinks, noteLinkTitles] = await Promise.all([
     import("../src/db/schema"),
     import("../src/lib/noteBlocks"),
     import("../src/routes/blocks"),
     import("../src/lib/noteLinks"),
+    import("../src/lib/noteLinkTitles"),
   ]);
   db = schema.getDb();
   closeDb = schema.closeDb;
   syncNoteBlocks = blocks.syncNoteBlocks;
   syncNoteLinks = noteLinks.syncNoteLinks;
+  syncAutomaticNoteLinkTitles = noteLinkTitles.syncAutomaticNoteLinkTitles;
   blocksApp = new Hono();
   blocksApp.route("/blocks", blockRoute.default);
 
@@ -176,3 +179,62 @@ test("HTML notes are never rewritten as Markdown blocks", () => {
   assert.equal(stored.content, content);
 });
 
+
+
+test("automatic note titles follow rename while aliases remain fixed", () => {
+  const autoId = "77777777-7777-4777-8777-777777777777";
+  const aliasId = "88888888-8888-4888-8888-888888888888";
+  const autoContent = JSON.stringify({
+    type: "doc",
+    content: [{
+      type: "paragraph",
+      attrs: { blockId: "blk_auto_title" },
+      content: [{
+        type: "text",
+        text: "Target",
+        marks: [{ type: "link", attrs: { href: `note:${targetId}`, rel: "noopener nowen-title-auto" } }],
+      }],
+    }],
+  });
+  const aliasContent = JSON.stringify({
+    type: "doc",
+    content: [{
+      type: "paragraph",
+      attrs: { blockId: "blk_alias_title" },
+      content: [{
+        type: "text",
+        text: "Fixed alias",
+        marks: [{ type: "link", attrs: { href: `note:${targetId}`, rel: "noopener nowen-title-alias" } }],
+      }],
+    }],
+  });
+  const insert = db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+    VALUES (?, ?, ?, ?, ?, ?, 'tiptap-json')`);
+  insert.run(autoId, owner, notebookId, "Auto source", autoContent, "Target");
+  insert.run(aliasId, owner, notebookId, "Alias source", aliasContent, "Fixed alias");
+  syncNoteBlocks(db, autoId, autoContent, "tiptap-json");
+  syncNoteBlocks(db, aliasId, aliasContent, "tiptap-json");
+  syncNoteLinks(db, owner, autoId, autoContent);
+  syncNoteLinks(db, owner, aliasId, aliasContent);
+
+  const updated = syncAutomaticNoteLinkTitles(db, targetId, "Target", "Renamed target");
+  assert.ok(updated.includes(autoId));
+  assert.ok(!updated.includes(aliasId));
+  const autoStored = db.prepare("SELECT content FROM notes WHERE id = ?").get(autoId) as { content: string };
+  const aliasStored = db.prepare("SELECT content FROM notes WHERE id = ?").get(aliasId) as { content: string };
+  assert.equal(JSON.parse(autoStored.content).content[0].content[0].text, "Renamed target");
+  assert.equal(JSON.parse(aliasStored.content).content[0].content[0].text, "Fixed alias");
+});
+
+test("link resolver returns ACL-safe preview metadata", async () => {
+  const response = await blocksApp.request(
+    `/blocks/resolve?link=${encodeURIComponent(`note:${targetId}#blk:blk_target`)}`,
+    { headers: { "X-User-Id": viewer } },
+  );
+  assert.equal(response.status, 200);
+  const payload = await response.json() as any;
+  assert.equal(payload.note.id, targetId);
+  assert.equal(payload.note.notebookName, "Knowledge");
+  assert.equal(typeof payload.note.updatedAt, "string");
+  assert.equal(payload.block.blockId, "blk_target");
+});

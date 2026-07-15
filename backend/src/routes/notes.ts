@@ -16,6 +16,7 @@ import { deleteAttachmentFilesByNoteIds, extractInlineBase64Images } from "./att
 import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { syncNoteLinks, getBacklinks } from "../lib/noteLinks";
 import { syncNoteBlocks } from "../lib/noteBlocks";
+import { syncAutomaticNoteLinkTitles } from "../lib/noteLinkTitles";
 import { noteLinksRepository, noteTagsRepository, noteVersionsRepository, favoritesRepository, noteYsnapshotsRepository, noteYupdatesRepository } from "../repositories";
 import { reclaimSpace } from "../lib/reclaimSpace";
 import { buildFtsSearchTerm } from "../lib/searchQuery";
@@ -676,6 +677,9 @@ app.put("/:id", async (c) => {
     }
   }
 
+  const previousTitleRow = typeof body.title === "string"
+    ? db.prepare("SELECT title FROM notes WHERE id = ?").get(id) as { title: string } | undefined
+    : undefined;
   const fields: string[] = [];
   const params: any[] = [];
 
@@ -832,6 +836,14 @@ app.put("/:id", async (c) => {
       syncNoteLinks(db, userId, id, normalizedLinkContent);
     } catch (e) {
       console.warn("[notes.put] syncNoteLinks failed:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (previousTitleRow && typeof body.title === "string" && previousTitleRow.title !== body.title) {
+    try {
+      syncAutomaticNoteLinkTitles(db, id, previousTitleRow.title, body.title);
+    } catch (e) {
+      console.warn("[notes.put] syncAutomaticNoteLinkTitles failed:", e instanceof Error ? e.message : e);
     }
   }
 

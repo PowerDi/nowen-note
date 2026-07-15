@@ -43,6 +43,8 @@ import { MathInline, MathBlock } from "@/components/MathExtensions";
 import { FootnoteReference, FootnoteDefinition } from "@/components/FootnoteExtensions";
 import { TextStyleKit } from "@/components/FontSizeExtension";
 import { Video as VideoExtension, videoNodeToMarkdown } from "@/components/VideoExtension";
+import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { preprocessInternalNoteLinks } from "@/lib/noteLinkSyntax";
 
 // BLOCK-ID-01: heading blockId 扩展（与 TiptapEditor 对齐）
 // 只声明 attrs，不带 appendTransaction plugin（generateHTML/generateJSON 不需要）
@@ -201,6 +203,7 @@ export function getTiptapExtensions() {
     // 视频节点：必须与 TiptapEditor 保持一致，否则 generateHTML 时 video 节点
     // 会被 schema 过滤，导致切换到 MD 后视频丢失。
     VideoExtension,
+    BlockEmbedExtension,
   ];
   return _extensions;
 }
@@ -499,6 +502,25 @@ function getTurndown(): TurndownService {
     },
   });
 
+  td.addRule("nowenNoteLink", {
+    filter: (node) => node.nodeName === "A" && ((node as Element).getAttribute("href") || "").startsWith("note:"),
+    replacement: (content, node) => {
+      const el = node as Element;
+      const href = el.getAttribute("href") || "";
+      const rel = el.getAttribute("rel") || "";
+      const alias = /\bnowen-title-alias\b/.test(rel) ? content.replace(/^\s+|\s+$/g, "") : "";
+      return alias ? `[[${href}|${alias.replace(/\]/g, "\\]")}]]` : `[[${href}]]`;
+    },
+  });
+
+  td.addRule("nowenBlockEmbed", {
+    filter: (node) => node.nodeName === "DIV" && (node as Element).getAttribute("data-nowen-block-embed") != null,
+    replacement: (_content, node) => {
+      const href = (node as Element).getAttribute("data-nowen-block-embed") || "";
+      return href ? `\n\n![[${href}]]\n\n` : "";
+    },
+  });
+
   _turndown = td;
   return td;
 }
@@ -579,6 +601,8 @@ export function markdownToPlainText(md: string): string {
   text = text.replace(/`([^`]+)`/g, "$1");
   // 图片
   text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  // Nowen 内部链接 / 块嵌入：别名保留，自动标题保留稳定 ID 的可读占位。
+  text = text.replace(/!?\[\[note:[0-9a-f-]{36}(?:#blk:[A-Za-z0-9_-]+)?(?:\|([^\]]+))?\]\]/gi, (_match, alias) => alias || "关联笔记");
   // 链接
   text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
   // HTML 标签（含 <span style="color/font-size"> 这类 inline 样式包装：
@@ -1301,8 +1325,10 @@ function restoreMarkdownBlockIdPlaceholders(html: string, ids: string[]): string
 export function markdownToHtml(md: string): string {
   if (!md) return "";
   try {
+    // 第 -1 步：把 Nowen 内部链接/块嵌入转换成可由 Tiptap schema 识别的 HTML。
+    const afterNoteLinks = preprocessInternalNoteLinks(md);
     // 第 0 步：把 ^blk_xxx 换成不会被 Markdown parser 吞掉的占位文本。
-    const { text: afterBlockIds, ids: blockIds } = extractMarkdownBlockIdPlaceholders(md);
+    const { text: afterBlockIds, ids: blockIds } = extractMarkdownBlockIdPlaceholders(afterNoteLinks);
     // 第 1 步：抽离数学公式
     const { text: afterMath, blocks, inlines } = extractMathPlaceholders(afterBlockIds);
     // 第 2 步：抽离脚注（在 math 之后做，避免 `$..$` 内的 `[^x]` 被当成 ref）

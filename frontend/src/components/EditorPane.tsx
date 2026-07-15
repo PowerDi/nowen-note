@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { haptic } from "@/hooks/useCapacitor";
 import { toast } from "@/lib/toast";
 import { exportNoteAsImage, printNote } from "@/lib/exportService";
+import { subscribeOpenInternalNoteLink } from "@/lib/blockNavigation";
 
 import { extractFinalAnswer, parseAiTags } from "@/lib/aiOutput";
 
@@ -135,6 +136,15 @@ export default function EditorPane() {
     window.addEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, handleOfflineConflict);
     return () => window.removeEventListener(OFFLINE_QUEUE_CONFLICT_EVENT, handleOfflineConflict);
   }, [activeNote?.id, actions, t]);
+
+  useEffect(() => subscribeOpenInternalNoteLink(async ({ noteId }) => {
+    try {
+      const target = await api.getNote(noteId);
+      if (target) actions.setActiveNote(target);
+    } catch {
+      toast.error("目标笔记不存在、已删除或无权访问");
+    }
+  }), [actions]);
 
   // �бʼ�ʱ��ƫ��Ӧ��"�򿪼�����"��
   // ����ֻ�� activeNote.id �仯ʱ��һ�Σ������� prefs.lockOnOpen���������û���

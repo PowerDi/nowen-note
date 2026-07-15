@@ -82,7 +82,10 @@ import type { NoteEditorHandle, NoteEditorHeading, NoteEditorProps } from "@/com
 import type { FormatMenuPayload } from "@/lib/desktopBridge";
 import { sendFormatState } from "@/lib/desktopBridge";
 import { SlashCommandsMenu, getDefaultSlashCommands, createSlashExtension, createSlashEventHandlers } from "@/components/SlashCommands";
-import { NoteLinkMenu, type NoteSearchResult, type HeadingItem as NoteLinkHeadingItem } from "@/components/NoteLinkExtension";
+import { NoteLinkMenu, type NoteSearchResult, type NoteLinkBlockItem, type NoteLinkSelectionOptions } from "@/components/NoteLinkExtension";
+import { NoteLinkHoverPreview } from "@/components/NoteLinkPreview";
+import { BlockEmbedExtension } from "@/components/BlockEmbedExtension";
+import { consumeBlockNavigation, subscribeBlockNavigation } from "@/lib/blockNavigation";
 import { MarkdownEnhancements } from "@/components/MarkdownEnhancements";
 import { MathExtensions } from "@/components/MathExtensions";
 import { FootnoteExtensions, nextFootnoteIdentifier } from "@/components/FootnoteExtensions";
@@ -164,6 +167,7 @@ function parsePastedWikiNoteLinks(text: string, fallbackTitle: string): HTMLDivE
     const title = (rawTitle || fallbackTitle).replace(/\\]/g, "]");
     const anchor = document.createElement("a");
     anchor.setAttribute("href", blockId ? `note:${noteId}#blk:${blockId}` : `note:${noteId}`);
+    anchor.setAttribute("rel", `noopener noreferrer nofollow nowen-title-${rawTitle ? "alias" : "auto"}`);
     anchor.textContent = title || fallbackTitle;
     wrapper.appendChild(anchor);
     lastIndex = match.index + match[0].length;
@@ -1633,6 +1637,17 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     timestamp: number;
   } | null>(null);
 
+  useEffect(() => {
+    const apply = () => {
+      const request = consumeBlockNavigation(note.id);
+      if (request) setPendingBlockJump({ targetNoteId: request.noteId, blockId: request.blockId, timestamp: request.createdAt });
+    };
+    apply();
+    return subscribeBlockNavigation((request) => {
+      if (request.noteId === note.id) setPendingBlockJump({ targetNoteId: request.noteId, blockId: request.blockId, timestamp: request.createdAt });
+    });
+  }, [note.id]);
+
   // 斜杠命令事件处理器（稳定引用）
   const slashHandlers = useRef(createSlashEventHandlers());
   const slashExtension = useRef(
@@ -1860,6 +1875,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
       // atom + block + draggable，NodeView 用透明遮罩防 iframe 抢焦点。
       // parseHTML 同时识别 <iframe> / <video>，让剪藏过来的视频内容也能落到此节点。
       VideoExtension,
+      BlockEmbedExtension,
     ],
     content: parseContent(note.content),
     editable,
@@ -2657,57 +2673,30 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
     },
   });
 
-  // BLOCK-LINKS-UI-01: 插入笔记引用（支持笔记级和块级）
-  const handleNoteLinkSelect = useCallback((note: NoteSearchResult, heading?: NoteLinkHeadingItem) => {
+  // BLOCK-LINKS-UI-02: 笔记/任意块引用，区分自动标题与固定别名。
+  const handleNoteLinkSelect = useCallback((
+    targetNote: NoteSearchResult,
+    block?: NoteLinkBlockItem,
+    options?: NoteLinkSelectionOptions,
+  ) => {
     if (!editor) return;
-
-    // 使用保存的 triggerFrom 位置，而不是重新计算
-    // 这样即使用户在菜单打开后移动了光标，也能正确替换 [[ 到菜单打开时的位置
     const replaceFrom = noteLinkMenu.triggerFrom;
-
-    // 验证 replaceFrom 是否有效
     if (replaceFrom < 0) return;
-
-    // 获取当前光标位置作为替换结束位置
-    const { state } = editor;
-    const { selection } = state;
-    const replaceTo = selection.$from.pos;
-
-    // 构建 href 和显示文本
-    let href: string;
-    let linkText: string;
-
-    if (heading) {
-      // 块级引用：note:NOTE_ID#blk:BLOCK_ID
-      href = `note:${note.id}#blk:${heading.blockId}`;
-      // 显示文本：笔记标题 > 标题文本
-      linkText = `${note.title} > ${heading.text}`;
-    } else {
-      // 笔记级引用：note:NOTE_ID
-      href = `note:${note.id}`;
-      linkText = note.title;
-    }
-
-    // 插入 Link mark
-    editor.chain()
-      .focus()
-      .deleteRange({ from: replaceFrom, to: replaceTo })
-      .insertContent({
-        type: "text",
-        text: linkText,
-        marks: [{
-          type: "link",
-          attrs: {
-            href,
-            target: "_blank",
-            rel: "noopener noreferrer nofollow",
-          },
-        }],
-      })
-      .run();
-
-    // 关闭菜单
-    setNoteLinkMenu(prev => ({ ...prev, open: false }));
+    const replaceTo = editor.state.selection.$from.pos;
+    const href = block ? `note:${targetNote.id}#blk:${block.blockId}` : `note:${targetNote.id}`;
+    const alias = options?.alias?.trim() || "";
+    const titleMode = alias ? "alias" : "auto";
+    const linkText = alias || (block ? `${targetNote.title} > ${block.plainText.slice(0, 80) || block.blockType}` : targetNote.title);
+    editor.chain().focus().deleteRange({ from: replaceFrom, to: replaceTo }).insertContent({
+      type: "text",
+      text: linkText,
+      marks: [{ type: "link", attrs: {
+        href,
+        target: "_blank",
+        rel: `noopener noreferrer nofollow nowen-title-${titleMode}`,
+      } }],
+    }).run();
+    setNoteLinkMenu((previous) => ({ ...previous, open: false }));
   }, [editor, noteLinkMenu.triggerFrom]);
 
   const copySelectionText = useCallback(async () => {
@@ -5381,6 +5370,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         style={{ paddingBottom: "calc(3rem + var(--keyboard-height, 0px))" }}
       >
         <EditorContent editor={editor} />
+      <NoteLinkHoverPreview root={editor.view.dom} />
       </div>
 
       {/* 附件内嵌预览：复用 AttachmentDetailDrawer
@@ -5515,6 +5505,7 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
           editor={editor}
           position={noteLinkMenu.position}
           query={noteLinkMenu.query}
+          notebookId={note.notebookId}
           onSelect={handleNoteLinkSelect}
           onClose={() => setNoteLinkMenu(prev => ({ ...prev, open: false }))}
         />

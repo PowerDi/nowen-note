@@ -30,6 +30,7 @@ interface NoteRecord {
   version: number;
   isLocked: number;
   isTrashed: number;
+  updatedAt: string;
 }
 
 function allowedNotebookIds(header: string | undefined): string[] | undefined {
@@ -40,7 +41,7 @@ function allowedNotebookIds(header: string | undefined): string[] | undefined {
 function readNote(noteId: string): NoteRecord | null {
   return (getDb().prepare(`
     SELECT id, userId, notebookId, title, content, contentText, contentFormat,
-           version, isLocked, isTrashed
+           version, isLocked, isTrashed, updatedAt
     FROM notes WHERE id = ?
   `).get(noteId) as NoteRecord | undefined) || null;
 }
@@ -320,8 +321,20 @@ app.get("/resolve", (c) => {
   ensureNoteIndexed(getDb(), noteId);
   const block = match[2] ? getNoteBlock(getDb(), noteId, match[2]) : null;
   if (match[2] && !block) return c.json({ error: "引用块不存在", code: "BLOCK_NOT_FOUND" }, 404);
+  const notebook = getDb().prepare("SELECT name FROM notebooks WHERE id = ?").get(required.note.notebookId) as
+    | { name: string }
+    | undefined;
   return c.json({
-    note: { id: required.note.id, title: required.note.title, notebookId: required.note.notebookId, version: required.note.version },
+    note: {
+      id: required.note.id,
+      title: required.note.title,
+      notebookId: required.note.notebookId,
+      notebookName: notebook?.name || null,
+      version: required.note.version,
+      updatedAt: required.note.updatedAt,
+      excerpt: (required.note.contentText || "").replace(/\s+/g, " ").trim().slice(0, 240),
+      contentFormat: required.note.contentFormat,
+    },
     block,
   });
 });
