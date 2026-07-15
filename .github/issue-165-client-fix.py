@@ -60,5 +60,11 @@ source = source.replace(
     "'''      types: [\"heading\", \"paragraph\", \"listItem\", \"taskItem\", \"blockquote\", \"codeBlock\"],'''",
     1,
 )
+old_backlink_patch = '''    ''' + "'''                      </div>\n                     </div>\n                   </motion.button>'''"
+new_backlink_patch = '''    ''' + "'''                      </div>\n                    </div>\n                  </div>\n                </motion.button>'''"
+source = source.replace(old_backlink_patch, new_backlink_patch, 1)
+old_backlink_output = '''    ''' + "'''                      </div>\n                       {(item.excerpt || item.linkText) && (\n                         <p className=\"mt-1.5 text-xs leading-5 text-tx-secondary line-clamp-3\">\n                           {item.excerpt || item.linkText}\n                         </p>\n                       )}\n                     </div>\n                   </motion.button>'''"
+new_backlink_output = '''    ''' + "'''                      </div>\n                      {(item.excerpt || item.linkText) && (\n                        <p className=\"mt-1.5 text-xs leading-5 text-tx-secondary line-clamp-3\">\n                          {item.excerpt || item.linkText}\n                        </p>\n                      )}\n                    </div>\n                  </div>\n                </motion.button>'''"
+source = source.replace(old_backlink_output, new_backlink_output, 1)
 path.write_text(source, encoding="utf-8")
-print("issue 165 client search and spacing patches fixed")
+print("issue 165 client search, spacing and backlink patches fixed")
