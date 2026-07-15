@@ -2,13 +2,15 @@ from pathlib import Path
 
 path = Path(".github/issue-165-client.py")
 source = path.read_text(encoding="utf-8")
+
+# Replace the fragile whole-tool MCP search patch with marker-based slicing.
 start_marker = "replace_once(\n    \"packages/nowen-mcp/src/index.ts\",\n    '''server.tool(\n  \"nowen_search\","
 start = source.index(start_marker)
 end_marker = '''    "MCP note/block search",
 )
 '''
 end = source.index(end_marker, start) + len(end_marker)
-replacement = r"""mcp_index_path = Path("packages/nowen-mcp/src/index.ts")
+search_replacement = r"""mcp_index_path = Path("packages/nowen-mcp/src/index.ts")
 mcp_index_source = mcp_index_path.read_text(encoding="utf-8")
 search_start = mcp_index_source.index('server.tool(\n  "nowen_search",')
 search_end_marker = '\n);\n\n// ==================== 标签工具'
@@ -49,7 +51,9 @@ mcp_index_path.write_text(
     encoding="utf-8",
 )
 """
-source = source[:start] + replacement + source[end:]
+source = source[:start] + search_replacement + source[end:]
+
+# Normalize the exact indentation used by contentFormat.ts.
 source = source.replace(
     "'''       types: [\"heading\"],'''",
     "'''      types: [\"heading\"],'''",
@@ -60,11 +64,35 @@ source = source.replace(
     "'''      types: [\"heading\", \"paragraph\", \"listItem\", \"taskItem\", \"blockquote\", \"codeBlock\"],'''",
     1,
 )
-old_backlink_patch = '''    ''' + "'''                      </div>\n                     </div>\n                   </motion.button>'''"
-new_backlink_patch = '''    ''' + "'''                      </div>\n                    </div>\n                  </div>\n                </motion.button>'''"
-source = source.replace(old_backlink_patch, new_backlink_patch, 1)
-old_backlink_output = '''    ''' + "'''                      </div>\n                       {(item.excerpt || item.linkText) && (\n                         <p className=\"mt-1.5 text-xs leading-5 text-tx-secondary line-clamp-3\">\n                           {item.excerpt || item.linkText}\n                         </p>\n                       )}\n                     </div>\n                   </motion.button>'''"
-new_backlink_output = '''    ''' + "'''                      </div>\n                      {(item.excerpt || item.linkText) && (\n                        <p className=\"mt-1.5 text-xs leading-5 text-tx-secondary line-clamp-3\">\n                          {item.excerpt || item.linkText}\n                        </p>\n                      )}\n                    </div>\n                  </div>\n                </motion.button>'''"
-source = source.replace(old_backlink_output, new_backlink_output, 1)
+
+# Replace the fragile JSX excerpt patch itself with an exact, readable anchor.
+label_pos = source.index('    "backlink panel excerpt",')
+block_start = source.rfind("replace_once(", 0, label_pos)
+block_end = source.index(")\n", label_pos) + 2
+backlink_replacement = '''backlinks_path = Path("frontend/src/components/BacklinksPanel.tsx")
+backlinks_source = backlinks_path.read_text(encoding="utf-8")
+backlink_anchor = "\\n".join([
+    "                      </div>",
+    "                    </div>",
+    "                  </div>",
+    "                </motion.button>",
+])
+backlink_output = "\\n".join([
+    "                      </div>",
+    "                      {(item.excerpt || item.linkText) && (",
+    "                        <p className=\\\"mt-1.5 text-xs leading-5 text-tx-secondary line-clamp-3\\\">",
+    "                          {item.excerpt || item.linkText}",
+    "                        </p>",
+    "                      )}",
+    "                    </div>",
+    "                  </div>",
+    "                </motion.button>",
+])
+if backlinks_source.count(backlink_anchor) != 1:
+    raise SystemExit(f"backlink panel excerpt: expected one JSX anchor, got {backlinks_source.count(backlink_anchor)}")
+backlinks_path.write_text(backlinks_source.replace(backlink_anchor, backlink_output, 1), encoding="utf-8")
+'''
+source = source[:block_start] + backlink_replacement + source[block_end:]
+
 path.write_text(source, encoding="utf-8")
-print("issue 165 client search, spacing and backlink patches fixed")
+print("issue 165 fragile client patches normalized")
