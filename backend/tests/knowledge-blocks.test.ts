@@ -144,3 +144,35 @@ test("block update enforces note version and operation idempotency", async () =>
   const replayPayload = await replay.json() as any;
   assert.equal(replayPayload.idempotentReplay, true);
 });
+
+test("Markdown backlinks retain the source block ID", () => {
+  const noteId = "55555555-5555-4555-8555-555555555555";
+  const content = `Paragraph [[note:${targetId}#blk:blk_target|Target paragraph]]\n`;
+  db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(noteId, owner, notebookId, "Markdown link", content, "", "markdown");
+  const synced = syncNoteBlocks(db, noteId, content, "markdown");
+  syncNoteLinks(db, owner, noteId, synced.content);
+  const row = db.prepare(`
+    SELECT sourceBlockId, targetBlockId FROM note_links
+    WHERE sourceNoteId = ? AND targetNoteId = ?
+  `).get(noteId, targetId) as { sourceBlockId: string | null; targetBlockId: string | null } | undefined;
+  assert.ok(row);
+  assert.equal(row?.sourceBlockId, synced.blocks[0].blockId);
+  assert.equal(row?.targetBlockId, "blk_target");
+});
+
+test("HTML notes are never rewritten as Markdown blocks", () => {
+  const noteId = "66666666-6666-4666-8666-666666666666";
+  const content = "<!doctype html><html><body><p>Clipped article</p></body></html>";
+  db.prepare(`INSERT INTO notes (id, userId, notebookId, title, content, contentText, contentFormat)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(noteId, owner, notebookId, "HTML clip", content, "Clipped article", "html");
+  const synced = syncNoteBlocks(db, noteId, content, "html");
+  assert.equal(synced.changed, false);
+  assert.equal(synced.content, content);
+  assert.equal(synced.blocks.length, 0);
+  const stored = db.prepare("SELECT content FROM notes WHERE id = ?").get(noteId) as { content: string };
+  assert.equal(stored.content, content);
+});
+

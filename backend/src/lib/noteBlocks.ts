@@ -370,6 +370,15 @@ export function syncNoteBlocks(
   contentFormat: string,
 ): { content: string; contentText: string; blocks: NoteBlockIndexRow[]; changed: boolean } {
   ensureNoteBlockTables(db);
+  if (contentFormat === "html") {
+    db.prepare("DELETE FROM note_blocks_index WHERE noteId = ?").run(noteId);
+    return {
+      content,
+      contentText: content.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+      blocks: [],
+      changed: false,
+    };
+  }
   const parsed = contentFormat === "tiptap-json"
     ? parseTiptap(noteId, content)
     : parseMarkdown(noteId, content);
@@ -491,6 +500,9 @@ export function searchNoteBlocks(
 }
 
 export function plainTextFromNoteContent(content: string, contentFormat: string): string {
+  if (contentFormat === "html") {
+    return content.replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
   const parsed = contentFormat === "tiptap-json"
     ? parseTiptap("", content).candidates
     : parseMarkdown("", content).candidates;

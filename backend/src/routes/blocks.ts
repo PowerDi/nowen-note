@@ -252,6 +252,9 @@ async function performWrite(c: any, action: "create" | "update" | "delete" | "mo
   const required = requireNote(c, noteId, "write");
   if (required instanceof Response) return required;
   const { note, userId } = required;
+  if (note.contentFormat === "html") {
+    return c.json({ error: "HTML 笔记不支持块级写入", code: "BLOCK_FORMAT_UNSUPPORTED" }, 400);
+  }
   const cached = readIdempotentResult(userId, body.operationId);
   if (cached) return c.json({ ...cached as any, idempotentReplay: true });
 

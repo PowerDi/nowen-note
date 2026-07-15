@@ -456,23 +456,27 @@ app.post("/", async (c) => {
     }
   }
 
-  // BACKLINKS-02: 维护 note_links 引用关系（写时维护）。
-  // 失败仅打日志，不阻断笔记创建——引用关系缺失只会让"反向链接"暂时不准，
-  // 不影响主流程；下次该笔记 PUT 时会被重新 sync。
-  if (typeof finalContent === "string") {
-    try {
-      syncNoteLinks(db, userId, id, finalContent);
-    } catch (e) {
-      console.warn("[notes.post] syncNoteLinks failed:", e instanceof Error ? e.message : e);
-    }
-  }
+  // BLOCK-INDEX-01: 先规范化块 ID 和派生索引，再同步链接关系。
+  // 顺序不能反过来，否则 Markdown 首次保存时 sourceBlockId 仍为空。
+  let normalizedLinkContent: string | null = null;
   try {
     const stored = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as
       | { content: string; contentFormat: string }
       | undefined;
-    if (stored) syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+    if (stored) {
+      const synced = syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+      normalizedLinkContent = synced.content;
+      finalContent = synced.content;
+    }
   } catch (e) {
     console.warn("[notes.post] syncNoteBlocks failed:", e instanceof Error ? e.message : e);
+  }
+  if (normalizedLinkContent !== null) {
+    try {
+      syncNoteLinks(db, userId, id, normalizedLinkContent);
+    } catch (e) {
+      console.warn("[notes.post] syncNoteLinks failed:", e instanceof Error ? e.message : e);
+    }
   }
 
   // Y1: SELECT 时 isFavorite 按当前用户动态计算；新建笔记当前用户尚未收藏，结果必为 0。
@@ -808,21 +812,26 @@ app.put("/:id", async (c) => {
     }
   }
 
-  // BACKLINKS-02: 同步 note_links 引用关系（仅在 content 字段被改动时）。
-  // 失败仅打日志不阻断保存。
+  // BLOCK-INDEX-01: 内容更新时先规范化块 ID，再从规范化正文同步链接。
   if (body.content !== undefined && typeof body.content === "string") {
-    try {
-      syncNoteLinks(db, userId, id, body.content);
-    } catch (e) {
-      console.warn("[notes.put] syncNoteLinks failed:", e instanceof Error ? e.message : e);
-    }
+    let normalizedLinkContent = body.content;
     try {
       const stored = db.prepare("SELECT content, contentFormat FROM notes WHERE id = ?").get(id) as
         | { content: string; contentFormat: string }
         | undefined;
-      if (stored) syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+      if (stored) {
+        const synced = syncNoteBlocks(db, id, stored.content || "", stored.contentFormat || "tiptap-json");
+        normalizedLinkContent = synced.content;
+        body.content = synced.content;
+        body.contentText = synced.contentText;
+      }
     } catch (e) {
       console.warn("[notes.put] syncNoteBlocks failed:", e instanceof Error ? e.message : e);
+    }
+    try {
+      syncNoteLinks(db, userId, id, normalizedLinkContent);
+    } catch (e) {
+      console.warn("[notes.put] syncNoteLinks failed:", e instanceof Error ? e.message : e);
     }
   }
 
