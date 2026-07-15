@@ -2,11 +2,15 @@ import { Editor } from "@tiptap/core";
 import Document from "@tiptap/extension-document";
 import Paragraph from "@tiptap/extension-paragraph";
 import Text from "@tiptap/extension-text";
-import { describe, expect, it } from "vitest";
+import { EditorContent } from "@tiptap/react";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
 
 import * as VideoExtension from "@/components/VideoExtension";
 
 const { getVideoDisplayStyle, Video } = VideoExtension;
+(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 function getStopDecision(target: Element): boolean | undefined {
   let decision: boolean | undefined;
@@ -23,6 +27,63 @@ function getStopDecision(target: Element): boolean | undefined {
   );
   target.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
   return decision;
+}
+
+async function renderVideoNodeView() {
+  const handleMouseDown = vi.fn();
+  const editor = new Editor({
+    extensions: [Document, Paragraph, Text, Video],
+    content: {
+      type: "doc",
+      content: [
+        {
+          type: "video",
+          attrs: {
+            src: "/api/attachments/att-video?inline=1",
+            originalUrl: "/api/attachments/att-video",
+            platform: "file",
+            kind: "file",
+            filename: "clip.mp4",
+          },
+        },
+      ],
+    },
+    editorProps: {
+      handleDOMEvents: {
+        mousedown: () => {
+          handleMouseDown();
+          return true;
+        },
+      },
+    },
+  });
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(createElement(EditorContent, { editor }));
+  });
+
+  const wrapper = host.querySelector<HTMLElement>(".video-node-wrapper");
+  const video = wrapper?.querySelector<HTMLVideoElement>("video");
+  expect(wrapper).not.toBeNull();
+  expect(video).not.toBeNull();
+
+  await act(async () => {
+    wrapper!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+  });
+  const toolbar = wrapper!.querySelector<HTMLElement>("[data-video-toolbar]");
+  expect(toolbar).not.toBeNull();
+
+  return {
+    editor,
+    handleMouseDown,
+    host,
+    root,
+    toolbar: toolbar!,
+    video: video!,
+    wrapper: wrapper!,
+  };
 }
 
 describe("VideoExtension file uploads", () => {
@@ -101,5 +162,27 @@ describe("VideoExtension NodeView events", () => {
     const wrapper = document.createElement("div");
 
     expect(getStopDecision(wrapper)).toBe(false);
+  });
+
+  it("wires the event boundary into the rendered NodeView", async () => {
+    const fixture = await renderVideoNodeView();
+    try {
+      await act(async () => {
+        fixture.video.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+        fixture.toolbar.firstElementChild?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      expect(fixture.handleMouseDown).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fixture.wrapper.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      });
+      expect(fixture.handleMouseDown).toHaveBeenCalledTimes(1);
+    } finally {
+      await act(async () => {
+        fixture.root.unmount();
+      });
+      fixture.editor.destroy();
+      fixture.host.remove();
+    }
   });
 });
