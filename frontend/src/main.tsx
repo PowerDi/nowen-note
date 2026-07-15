@@ -20,6 +20,7 @@ import AndroidShareImportCenter from "./components/AndroidShareImportCenter";
 import ServerConnectionCenter from "./components/ServerConnectionCenter";
 import NoteImageExportCenter from "./components/NoteImageExportCenter";
 import "./index.css";
+import "./code-block-wrap.css";
 import "./overlay-layers.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
