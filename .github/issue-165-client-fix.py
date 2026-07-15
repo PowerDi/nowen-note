@@ -49,5 +49,16 @@ mcp_index_path.write_text(
     encoding="utf-8",
 )
 """
-path.write_text(source[:start] + replacement + source[end:], encoding="utf-8")
-print("issue 165 client search patch fixed")
+source = source[:start] + replacement + source[end:]
+source = source.replace(
+    "'''       types: [\"heading\"],'''",
+    "'''      types: [\"heading\"],'''",
+    1,
+)
+source = source.replace(
+    "'''       types: [\"heading\", \"paragraph\", \"listItem\", \"taskItem\", \"blockquote\", \"codeBlock\"],'''",
+    "'''      types: [\"heading\", \"paragraph\", \"listItem\", \"taskItem\", \"blockquote\", \"codeBlock\"],'''",
+    1,
+)
+path.write_text(source, encoding="utf-8")
+print("issue 165 client search and spacing patches fixed")
