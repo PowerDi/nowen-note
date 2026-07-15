@@ -31,18 +31,31 @@ jobs:
       - name: Capture main parent
         run: git rev-parse origin/main > /tmp/issue165-main-parent
       - name: Apply deterministic patches
-        run: |
-          python .github/issue-165-phase1-normalize.py
-          python .github/issue-165-phase1-backend.py
-          python .github/issue-165-phase1-frontend-files.py
-          python .github/issue-165-phase1-frontend-existing.py
-      - name: Validate all layers
-        id: validate
+        id: apply
         shell: bash
         run: |
           set +e
           : > /tmp/issue165.log
           : > /tmp/issue165.status
+          run_patch() {
+            local name="$1"; shift
+            echo "===== $name =====" | tee -a /tmp/issue165.log
+            "$@" >> /tmp/issue165.log 2>&1
+            local code=$?
+            echo "$name=$code" | tee -a /tmp/issue165.log
+            echo "$name=$code" >> /tmp/issue165.status
+          }
+          run_patch normalize python .github/issue-165-phase1-normalize.py
+          run_patch backend_patch python .github/issue-165-phase1-backend.py
+          run_patch frontend_files python .github/issue-165-phase1-frontend-files.py
+          run_patch frontend_patch python .github/issue-165-phase1-frontend-existing.py
+          if grep -qE '=[1-9][0-9]*$' /tmp/issue165.status; then echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
+      - name: Validate all layers
+        if: steps.apply.outputs.ok == 'true'
+        id: validate
+        shell: bash
+        run: |
+          set +e
           run_step() {
             local name="$1"; shift
             echo "===== $name =====" | tee -a /tmp/issue165.log
@@ -50,7 +63,6 @@ jobs:
             local code=$?
             echo "$name=$code" | tee -a /tmp/issue165.log
             echo "$name=$code" >> /tmp/issue165.status
-            return 0
           }
           run_step backend_install bash -lc 'cd backend && npm ci'
           run_step backend_typecheck bash -lc 'cd backend && npm run build:tsc'
@@ -63,7 +75,7 @@ jobs:
           run_step frontend_build bash -lc 'cd frontend && npm run build'
           if grep -qE '=[1-9][0-9]*$' /tmp/issue165.status; then echo "ok=false" >> "$GITHUB_OUTPUT"; else echo "ok=true" >> "$GITHUB_OUTPUT"; fi
       - name: Record diagnostics
-        if: steps.validate.outputs.ok != 'true'
+        if: steps.apply.outputs.ok != 'true' || steps.validate.outputs.ok != 'true'
         run: |
           python - <<'PY'
           import json
@@ -81,7 +93,7 @@ jobs:
           git push origin HEAD:codex/issue-165-finish
           exit 1
       - name: Create clean feature commit
-        if: steps.validate.outputs.ok == 'true'
+        if: steps.apply.outputs.ok == 'true' && steps.validate.outputs.ok == 'true'
         run: |
           PARENT=$(cat /tmp/issue165-main-parent)
           git config user.name github-actions[bot]
