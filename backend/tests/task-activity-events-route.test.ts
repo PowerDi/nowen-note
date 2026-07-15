@@ -16,6 +16,8 @@ let closeDb: (() => void) | undefined;
 
 test.before(async () => {
   const schemaModule = await import("../src/db/schema.js");
+  getDb = schemaModule.getDb;
+  closeDb = schemaModule.closeDb;
   const [honoModule, statsModule] = await Promise.all([
     import("hono"),
     import("../src/runtime/task-stats-hardening"),
@@ -23,8 +25,6 @@ test.before(async () => {
   app = new honoModule.Hono();
   statsModule.installTaskStatsRoutes(app);
   statsModule.ensureTaskStatsSchema();
-  getDb = schemaModule.getDb;
-  closeDb = schemaModule.closeDb;
 
   const db = getDb();
   db.prepare("INSERT INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
