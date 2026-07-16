@@ -21,11 +21,11 @@ export const shareCommentsRepository = {
    * @param commentId 评论 ID
    * @returns 评论记录，或 undefined
    */
-  getById(commentId: string): { id: string; userId: string | null } | undefined {
+  getById(commentId: string): { id: string; noteId: string; userId: string | null } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT id, \"userId\" FROM share_comments WHERE id = ?")
-      .get(commentId) as { id: string; userId: string | null } | undefined;
+      .prepare("SELECT id, \"noteId\", \"userId\" FROM share_comments WHERE id = ?")
+      .get(commentId) as { id: string; noteId: string; userId: string | null } | undefined;
   },
 
   /**
@@ -34,11 +34,11 @@ export const shareCommentsRepository = {
    * @param commentId 评论 ID
    * @returns 评论记录，或 undefined
    */
-  getResolved(commentId: string): { isResolved: number } | undefined {
+  getResolved(commentId: string): { noteId: string; isResolved: number } | undefined {
     const db = getDb();
     return db
-      .prepare("SELECT \"isResolved\" FROM share_comments WHERE id = ?")
-      .get(commentId) as { isResolved: number } | undefined;
+      .prepare("SELECT \"noteId\", \"isResolved\" FROM share_comments WHERE id = ?")
+      .get(commentId) as { noteId: string; isResolved: number } | undefined;
   },
 
   /**
@@ -207,16 +207,16 @@ export const shareCommentsRepository = {
       .get(id) as any | undefined;
   },
 
-  async getByIdAsync(commentId: string): Promise<{ id: string; userId: string | null } | undefined> {
-    return getAdapter().queryOne<{ id: string; userId: string | null }>(
-      "SELECT id, \"userId\" FROM share_comments WHERE id = ?",
+  async getByIdAsync(commentId: string): Promise<{ id: string; noteId: string; userId: string | null } | undefined> {
+    return getAdapter().queryOne<{ id: string; noteId: string; userId: string | null }>(
+      "SELECT id, \"noteId\", \"userId\" FROM share_comments WHERE id = ?",
       [commentId],
     );
   },
 
-  async getResolvedAsync(commentId: string): Promise<{ isResolved: number } | undefined> {
-    return getAdapter().queryOne<{ isResolved: number }>(
-      "SELECT \"isResolved\" FROM share_comments WHERE id = ?",
+  async getResolvedAsync(commentId: string): Promise<{ noteId: string; isResolved: number } | undefined> {
+    return getAdapter().queryOne<{ noteId: string; isResolved: number }>(
+      "SELECT \"noteId\", \"isResolved\" FROM share_comments WHERE id = ?",
       [commentId],
     );
   },

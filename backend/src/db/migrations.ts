@@ -205,7 +205,7 @@ const userAISettingsMigration: Migration = {
 };
 
 const noteImportOriginsMigration: Migration = {
-  version: 48,
+  version: 49,
   name: "note-import-origins",
   up: (db) => {
     db.exec(`

@@ -181,6 +181,10 @@ CREATE TABLE IF NOT EXISTS notebook_members (
     "userId" TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role TEXT NOT NULL DEFAULT 'viewer',
     status TEXT NOT NULL DEFAULT 'active',
+    "allowDownload" INTEGER NOT NULL DEFAULT 1,
+    "allowReshare" INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT 'manual',
+    "sourceId" TEXT,
     "invitedBy" TEXT REFERENCES users(id) ON DELETE SET NULL,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -562,6 +566,7 @@ CREATE TABLE IF NOT EXISTS shares (
     "shareType" TEXT NOT NULL DEFAULT 'link',
     permission TEXT NOT NULL DEFAULT 'view',
     password TEXT,
+    "credentialVersion" INTEGER NOT NULL DEFAULT 1,
     "expiresAt" TIMESTAMPTZ,
     "maxViews" INTEGER,
     "viewCount" INTEGER DEFAULT 0,
@@ -574,6 +579,15 @@ CREATE INDEX IF NOT EXISTS idx_shares_note ON shares("noteId");
 CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares("ownerId");
 CREATE INDEX IF NOT EXISTS idx_shares_token ON shares("shareToken");
 
+CREATE TABLE IF NOT EXISTS "share_view_sessions" (
+  "shareId" TEXT NOT NULL REFERENCES "shares"("id") ON DELETE CASCADE,
+  "sessionHash" TEXT NOT NULL,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "lastSeenAt" TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY ("shareId", "sessionHash")
+);
+CREATE INDEX IF NOT EXISTS "idx_share_view_sessions_seen" ON "share_view_sessions"("shareId", "lastSeenAt");
+
 CREATE TABLE IF NOT EXISTS share_comments (
     id TEXT PRIMARY KEY,
     "noteId" TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -583,6 +597,9 @@ CREATE TABLE IF NOT EXISTS share_comments (
     "parentId" TEXT REFERENCES share_comments(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     "anchorData" TEXT,
+    "sourceType" TEXT NOT NULL DEFAULT 'note_share',
+    "sourceId" TEXT,
+    "isHidden" INTEGER NOT NULL DEFAULT 0,
     "isResolved" BOOLEAN DEFAULT false,
     "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()

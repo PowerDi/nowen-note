@@ -84,7 +84,7 @@ async function receivePackage(c: any): Promise<{
   const tmpPath = path.join(tmpDir, "package.zip");
   const fields: Record<string, string> = {};
 
-  return await new Promise((resolve, reject) => {
+  return await new Promise<{ tmpDir: string; tmpPath: string; filename: string; fields: Record<string, string> }>((resolve, reject) => {
     let filename = "wechat-favorites.zip";
     let size = 0;
     let fileSeen = false;

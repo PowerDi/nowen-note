@@ -9,6 +9,8 @@ import { getDb } from "../db/schema";
 import { inferVideoMime } from "../lib/media-mime";
 import { resolvePublicOrigin } from "../lib/shareUrlRewrite";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
+import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
+import { authorizeSingleShareRequest, findSingleShareByToken } from "../services/single-share-access";
 import { verifyLoginToken, verifyShareAccessToken } from "../lib/auth-security";
 import { hasScope, looksLikeApiToken, resolveApiToken } from "../lib/api-tokens";
 import { userSessionsRepository } from "../repositories";
@@ -124,43 +126,13 @@ function handleSharedAttachmentAccess(c: Context): Response {
     return noStoreJson(c, { error: "缺少有效分享令牌", code: "SHARE_TOKEN_REQUIRED" }, 400);
   }
 
-  const share = getDb()
-    .prepare(
-      `SELECT id, noteId, password, isActive, expiresAt, maxViews, viewCount
-       FROM shares WHERE shareToken = ?`,
-    )
-    .get(token) as ShareAccessRow | undefined;
-
-  if (!share) {
-    return noStoreJson(c, { error: "分享不存在", code: "SHARE_NOT_FOUND" }, 404);
-  }
-  if (!share.isActive) {
-    return noStoreJson(c, { error: "分享已被撤销", code: "SHARE_REVOKED" }, 410);
-  }
-  if (isExpiredDate(share.expiresAt)) {
-    return noStoreJson(c, { error: "分享已过期", code: "SHARE_EXPIRED" }, 410);
-  }
-  // 该接口由前端在获取正文之前调用。达到次数上限后不再签发新的附件 URL；
-  // 已经签发的 URL 仍会继续按分享撤销/过期状态逐请求复核。
-  if (share.maxViews && share.viewCount >= share.maxViews) {
-    return noStoreJson(c, { error: "分享已达到最大访问次数", code: "SHARE_VIEW_LIMIT" }, 410);
-  }
-
-  if (share.password) {
-    const authHeader = c.req.header("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) {
-      return noStoreJson(c, { error: "需要密码验证", code: "SHARE_PASSWORD_REQUIRED" }, 401);
-    }
-    const payload = verifyShareAccessToken(authHeader.slice(7), share.id);
-    if (!payload) {
-      return noStoreJson(c, { error: "分享访问令牌无效或已过期", code: "SHARE_ACCESS_TOKEN_INVALID" }, 401);
-    }
-  }
-
-  const scope = createShareAttachmentScope(share.id, share.noteId);
+  const share = findSingleShareByToken(token);
+  const access = authorizeSingleShareRequest(c, share, { requireCredential: true });
+  if (!access.ok) return noStoreJson(c, access.payload, access.status);
+  const scope = createShareAttachmentScope(share!.id, share!.noteId, true);
   return noStoreJson(c, {
-    noteId: share.noteId,
-    urls: buildSignedAttachmentUrls(share.noteId, scope, requestPublicOrigin(c)),
+    noteId: share!.noteId,
+    urls: buildSignedAttachmentUrls(share!.noteId, scope, requestPublicOrigin(c)),
   });
 }
 
@@ -216,13 +188,13 @@ attachmentsRouter.get("/access/urls", (c) => {
   const noteId = (c.req.query("noteId") || "").trim();
   if (!noteId) return noStoreJson(c, { error: "缺少 noteId", code: "NOTE_ID_REQUIRED" }, 400);
 
-  const { permission } = resolveNotePermission(noteId, userId);
-  if (!hasPermission(permission, "read")) {
+  const capabilities = resolveEffectiveNoteCapabilities(noteId, userId);
+  if (!capabilities.read) {
     console.warn("[attachment.access.denied]", { noteId, userId, reason: "note_read_forbidden" });
     return noStoreJson(c, { error: "无权访问该笔记的附件", code: "ATTACHMENT_ACCESS_DENIED" }, 403);
   }
 
-  const scope = createUserAttachmentScope(userId, noteId);
+  const scope = createUserAttachmentScope(userId, noteId, capabilities.download);
   return noStoreJson(c, {
     noteId,
     urls: buildSignedAttachmentUrls(noteId, scope, requestPublicOrigin(c)),
@@ -272,8 +244,10 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
     return c.json({ error: "附件访问签名不完整", code: "INVALID_SIGNATURE" }, 403);
   }
 
+  let signatureVerification: ReturnType<typeof verifyAttachmentSignature> | null = null;
   if (hasCompleteSignature) {
     const verification = verifyAttachmentSignature(id, exp!, sig!, scope!);
+    signatureVerification = verification;
     if (!verification.valid) {
       const revoked = ACCESS_REVOKED_REASONS.has(verification.reason || "");
       console.warn("[attachment.access.denied]", {
@@ -296,6 +270,12 @@ export async function handleDownloadAttachment(c: Context): Promise<Response> {
         403,
       );
     }
+  }
+
+  const downloadRequested = /^(?:1|true|yes)$/i.test(c.req.query("download") || "");
+  if (downloadRequested && signatureVerification?.allowDownload === false) {
+    console.warn("[attachment.access.denied]", { id, reason: "download_forbidden" });
+    return c.json({ error: "当前分享不允许下载附件", code: "ATTACHMENT_DOWNLOAD_FORBIDDEN" }, 403);
   }
 
   const metadataExists = Boolean(

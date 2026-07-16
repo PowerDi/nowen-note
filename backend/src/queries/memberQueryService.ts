@@ -80,8 +80,8 @@ function getNotebookMemberAccess(notebookId: string, userId: string): NotebookMe
         ancestors.id AS sourceNotebookId,
         ancestors.depth AS depth,
         'member' AS source,
-        1 AS allowDownload,
-        CASE WHEN nm.role = 'owner' THEN 1 ELSE 0 END AS allowReshare,
+        COALESCE(nm.allowDownload, 1) AS allowDownload,
+        COALESCE(nm.allowReshare, CASE WHEN nm.role = 'owner' THEN 1 ELSE 0 END) AS allowReshare,
         1 AS sourcePriority
       FROM ancestors
       JOIN notebook_members nm

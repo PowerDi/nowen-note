@@ -2028,6 +2028,64 @@ export const MIGRATIONS: Migration[] = [
     },
   },
 
+  // v50: 分享安全、能力与生命周期闭环（Issue #308）
+  {
+    version: 50,
+    name: "share-security-capabilities-lifecycle",
+    up: (db) => {
+      const addColumnIfMissing = (table: string, column: string, definition: string) => {
+        const exists = db.prepare("SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name = ?").get(table);
+        if (!exists) return;
+        const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+        if (!columns.some((entry) => entry.name === column)) {
+          db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+        }
+      };
+
+      addColumnIfMissing("shares", "credentialVersion", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing("share_comments", "sourceType", "TEXT NOT NULL DEFAULT 'note_share'");
+      addColumnIfMissing("share_comments", "sourceId", "TEXT");
+      addColumnIfMissing("share_comments", "isHidden", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing("notebook_members", "allowDownload", "INTEGER NOT NULL DEFAULT 1");
+      addColumnIfMissing("notebook_members", "allowReshare", "INTEGER NOT NULL DEFAULT 0");
+      addColumnIfMissing("notebook_members", "source", "TEXT NOT NULL DEFAULT 'manual'");
+      addColumnIfMissing("notebook_members", "sourceId", "TEXT");
+      addColumnIfMissing("notebook_publications", "credentialVersion", "INTEGER NOT NULL DEFAULT 1");
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS share_view_sessions (
+          shareId TEXT NOT NULL,
+          sessionHash TEXT NOT NULL,
+          createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+          lastSeenAt TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (shareId, sessionHash),
+          FOREIGN KEY (shareId) REFERENCES shares(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_share_view_sessions_seen
+          ON share_view_sessions(shareId, lastSeenAt);
+        CREATE INDEX IF NOT EXISTS idx_share_comments_source
+          ON share_comments(sourceType, sourceId, noteId, createdAt);
+        CREATE INDEX IF NOT EXISTS idx_notebook_members_source
+          ON notebook_members(source, sourceId, notebookId);
+      `);
+
+      const legacyPublicComments = db.prepare(
+        "SELECT 1 AS ok FROM sqlite_master WHERE type='table' AND name='notebook_public_comments'",
+      ).get();
+      if (legacyPublicComments) {
+        db.exec(`
+          INSERT OR IGNORE INTO share_comments (
+            id, noteId, userId, guestName, content, sourceType, sourceId,
+            isHidden, isResolved, createdAt, updatedAt
+          )
+          SELECT id, noteId, NULL, nickname, content, 'notebook_publication', publicationId,
+                 0, 0, createdAt, createdAt
+          FROM notebook_public_comments;
+        `);
+      }
+    },
+  },
+
 ];
 
 /** 当前代码已知的最高 schema 版本（== MIGRATIONS 里 max(version)）。 */

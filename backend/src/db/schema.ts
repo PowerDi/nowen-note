@@ -339,6 +339,7 @@ function initSchema(db: Database.Database) {
       shareType TEXT NOT NULL DEFAULT 'link',
       permission TEXT NOT NULL DEFAULT 'view',
       password TEXT,
+      credentialVersion INTEGER NOT NULL DEFAULT 1,
       expiresAt TEXT,
       maxViews INTEGER,
       viewCount INTEGER DEFAULT 0,
@@ -352,6 +353,16 @@ function initSchema(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_shares_note ON shares(noteId);
     CREATE INDEX IF NOT EXISTS idx_shares_owner ON shares(ownerId);
     CREATE INDEX IF NOT EXISTS idx_shares_token ON shares(shareToken);
+
+    CREATE TABLE IF NOT EXISTS share_view_sessions (
+      shareId TEXT NOT NULL,
+      sessionHash TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT (datetime('now')),
+      lastSeenAt TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (shareId, sessionHash),
+      FOREIGN KEY (shareId) REFERENCES shares(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_share_view_sessions_seen ON share_view_sessions(shareId, lastSeenAt);
 
     -- 笔记版本历史表
     CREATE TABLE IF NOT EXISTS note_versions (
@@ -394,6 +405,9 @@ function initSchema(db: Database.Database) {
       parentId TEXT,
       content TEXT NOT NULL,
       anchorData TEXT,
+      sourceType TEXT NOT NULL DEFAULT 'note_share',
+      sourceId TEXT,
+      isHidden INTEGER NOT NULL DEFAULT 0,
       isResolved INTEGER DEFAULT 0,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),
@@ -403,6 +417,7 @@ function initSchema(db: Database.Database) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_share_comments_note ON share_comments(noteId);
+    CREATE INDEX IF NOT EXISTS idx_share_comments_source ON share_comments(sourceType, sourceId, noteId, createdAt);
     -- 注意：idx_share_comments_guest_ip 不在这里建。
     -- 原因：老库（v12 之前）已经有 share_comments 表但没有 guestIpHash 列，
     --       CREATE TABLE IF NOT EXISTS 会跳过重建，紧接着对不存在的列建索引会让
@@ -552,6 +567,10 @@ function initSchema(db: Database.Database) {
       userId TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'viewer',
       status TEXT NOT NULL DEFAULT 'active',
+      allowDownload INTEGER NOT NULL DEFAULT 1,
+      allowReshare INTEGER NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      sourceId TEXT,
       invitedBy TEXT,
       createdAt TEXT NOT NULL DEFAULT (datetime('now')),
       updatedAt TEXT NOT NULL DEFAULT (datetime('now')),

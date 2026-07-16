@@ -15,6 +15,7 @@
 import crypto from "crypto";
 import { getDb } from "../db/schema";
 import { hasPermission, resolveNotePermission } from "../middleware/acl";
+import { resolveEffectiveNoteCapabilities } from "../services/share-capabilities";
 
 const DEFAULT_TTL_MS = 12 * 60 * 60 * 1000; // 12 小时：覆盖长时间编辑会话
 const MAX_TTL_MS = 24 * 60 * 60 * 1000;     // 24 小时；访问权限仍会逐请求复核
@@ -22,14 +23,15 @@ const SCOPE_PREFIX = "v2.";
 const MAX_SCOPE_LENGTH = 1024;
 
 export type AttachmentAccessScope =
-  | { version: 2; kind: "user"; subjectId: string; noteId: string }
-  | { version: 2; kind: "share"; subjectId: string; noteId: string }
-  | { version: 2; kind: "publication"; subjectId: string; noteId: string };
+  | { version: 2; kind: "user"; subjectId: string; noteId: string; allowDownload: boolean }
+  | { version: 2; kind: "share"; subjectId: string; noteId: string; allowDownload: boolean }
+  | { version: 2; kind: "publication"; subjectId: string; noteId: string; allowDownload: boolean };
 
 export interface AttachmentSignatureVerification {
   valid: boolean;
   reason?: string;
   accessKind?: AttachmentAccessScope["kind"];
+  allowDownload?: boolean;
 }
 
 function getSigningSecret(): string {
@@ -44,16 +46,20 @@ function encodeScope(scope: AttachmentAccessScope): string {
   return `${SCOPE_PREFIX}${payload}`;
 }
 
-export function createUserAttachmentScope(userId: string, noteId: string): string {
-  return encodeScope({ version: 2, kind: "user", subjectId: userId, noteId });
+export function createUserAttachmentScope(userId: string, noteId: string, allowDownload = true): string {
+  return encodeScope({ version: 2, kind: "user", subjectId: userId, noteId, allowDownload });
 }
 
-export function createShareAttachmentScope(shareId: string, noteId: string): string {
-  return encodeScope({ version: 2, kind: "share", subjectId: shareId, noteId });
+export function createShareAttachmentScope(shareId: string, noteId: string, allowDownload = true): string {
+  return encodeScope({ version: 2, kind: "share", subjectId: shareId, noteId, allowDownload });
 }
 
-export function createPublicationAttachmentScope(publicationId: string, noteId: string): string {
-  return encodeScope({ version: 2, kind: "publication", subjectId: publicationId, noteId });
+export function createPublicationAttachmentScope(
+  publicationId: string,
+  noteId: string,
+  allowDownload = true,
+): string {
+  return encodeScope({ version: 2, kind: "publication", subjectId: publicationId, noteId, allowDownload });
 }
 
 export function parseAttachmentAccessScope(raw: string): AttachmentAccessScope | null {
@@ -71,6 +77,7 @@ export function parseAttachmentAccessScope(raw: string): AttachmentAccessScope |
       kind: parsed.kind,
       subjectId: parsed.subjectId,
       noteId: parsed.noteId,
+      allowDownload: parsed.allowDownload !== false,
     } as AttachmentAccessScope;
   } catch {
     return null;
@@ -109,11 +116,15 @@ export function verifyAttachmentAccessScope(
   }
 
   if (scope.kind === "user") {
-    const { permission } = resolveNotePermission(scope.noteId, scope.subjectId);
-    if (!hasPermission(permission, "read")) {
+    const capabilities = resolveEffectiveNoteCapabilities(scope.noteId, scope.subjectId);
+    if (!capabilities.read) {
       return { valid: false, reason: "user_access_revoked", accessKind: "user" };
     }
-    return { valid: true, accessKind: "user" };
+    return {
+      valid: true,
+      accessKind: "user",
+      allowDownload: scope.allowDownload && capabilities.download,
+    };
   }
 
   if (scope.kind === "share") {
@@ -128,7 +139,7 @@ export function verifyAttachmentAccessScope(
     if (isExpiredDate(share.expiresAt)) {
       return { valid: false, reason: "share_expired", accessKind: "share" };
     }
-    return { valid: true, accessKind: "share" };
+    return { valid: true, accessKind: "share", allowDownload: scope.allowDownload };
   }
 
   // 笔记本发布：必须仍处于启用、未过期状态，且目标笔记仍位于发布目录树中。
@@ -146,7 +157,7 @@ export function verifyAttachmentAccessScope(
         JOIN published_tree tree ON child.parentId = tree.id
         WHERE child.isDeleted = 0
       )
-      SELECT p.isActive, p.expiresAt
+      SELECT p.isActive, p.expiresAt, p.allowDownload
       FROM notebook_publications p
       JOIN notes n ON n.id = ?
       WHERE p.id = ?
@@ -154,7 +165,7 @@ export function verifyAttachmentAccessScope(
         AND n.isTrashed = 0
         AND n.isLocked = 0
     `).get(scope.subjectId, scope.noteId, scope.subjectId) as
-      | { isActive: number; expiresAt: string | null }
+      | { isActive: number; expiresAt: string | null; allowDownload: number }
       | undefined;
 
     if (!publication || !publication.isActive) {
@@ -163,7 +174,7 @@ export function verifyAttachmentAccessScope(
     if (isExpiredDate(publication.expiresAt)) {
       return { valid: false, reason: "publication_expired", accessKind: "publication" };
     }
-    return { valid: true, accessKind: "publication" };
+    return { valid: true, accessKind: "publication", allowDownload: scope.allowDownload && publication.allowDownload !== 0 };
   } catch {
     // 老数据库尚未创建发布表时，publication scope 一律拒绝。
     return { valid: false, reason: "publication_access_revoked", accessKind: "publication" };
@@ -208,7 +219,8 @@ export function createUserAttachmentAccessUrls(
   const urls: Record<string, string> = {};
   for (const attachment of attachments) {
     if (!attachment.id || !attachment.noteId) continue;
-    const scope = createUserAttachmentScope(userId, attachment.noteId);
+    const capabilities = resolveEffectiveNoteCapabilities(attachment.noteId, userId);
+    const scope = createUserAttachmentScope(userId, attachment.noteId, capabilities.download);
     urls[attachment.id] = createAttachmentSignedUrl(
       `/api/attachments/${attachment.id}`,
       attachment.id,
