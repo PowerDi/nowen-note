@@ -1,11 +1,10 @@
 name: Issue 322 main implementation
 
-# Trigger revision 2: workflow already exists with the push event.
 on:
   push:
     branches: [main]
     paths:
-      - .github/workflows/issue-322-main-implementation.yml
+      - .github/issue322/trigger
 
 permissions:
   contents: write
@@ -13,7 +12,7 @@ permissions:
 
 jobs:
   implement:
-    if: github.event.head_commit.message == 'chore(ci): run issue #322 implementation'
+    if: github.event.head_commit.message == 'chore(ci): execute issue #322 migration'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,10 +27,9 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - id: apply
-        name: Apply staged patches
+        name: Apply deterministic migration
         run: |
-          git apply --verbose --check .github/issue322/*.patch
-          git apply --verbose .github/issue322/*.patch
+          python3 .github/issue322/apply_issue_322.py
           git diff --check
 
       - id: install
