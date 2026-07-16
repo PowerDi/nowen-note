@@ -39,6 +39,7 @@ import { installNoteSyncSafety } from "./lib/noteSyncSafety";
 import { installNoteUpdateResponseGuard } from "./lib/noteUpdateResponseGuard";
 import { installTaskAttachmentExportFallback } from "./lib/taskAttachmentExportFallback";
 import { installTwoFactorLoginChallengeBridge } from "./lib/twoFactorLoginChallenge";
+import { installTaskUpdateSafetyBridge } from "./lib/taskUpdateSafetyBridge";
 
 function removeBootSplash() {
   try {
@@ -81,6 +82,9 @@ installShareLightboxRotationGuard();
 installMobileImageFocusGuard();
 // Keep one stale task-image reference from aborting an otherwise valid full task backup.
 installTaskAttachmentExportFallback();
+// Normalize task repeat mutations at the API boundary and surface failures before optimistic
+// task state is reloaded from the server.
+installTaskUpdateSafetyBridge();
 // Route Markdown/ZIP/PDF/DOCX Blob downloads through the reliable HTTP transport. New clients
 // connected to an older NAS automatically fall back to the original local Blob download.
 installReliableExportDownloadBridge();
