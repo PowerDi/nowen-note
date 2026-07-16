@@ -1,17 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, Pencil, RefreshCw,
-  RotateCcw, Settings2, Shield, Trash2, X,
+  AlertTriangle, Check, Copy, ExternalLink, Eye, EyeOff, Link2, Loader2, Pencil,
+  RefreshCw, RotateCcw, Settings2, Shield, Trash2, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { confirm } from "@/components/ui/confirm";
 import { api } from "@/lib/api";
-import { buildPublicWebUrl } from "@/lib/publicWebOrigin";
+import {
+  buildPublicWebUrl,
+  getPublicWebOriginSourceLabel,
+  resolvePublicWebOrigin,
+} from "@/lib/publicWebOrigin";
 import { toast } from "@/lib/toast";
 import type { Share, SharePermission } from "@/types";
 import { cn } from "@/lib/utils";
+import { useSiteSettings } from "@/hooks/useSiteSettings";
 
 interface ShareModalProps {
   noteId: string;
@@ -31,6 +36,7 @@ function permissionLabel(value: string): string {
 }
 
 export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalProps) {
+  const { siteConfig } = useSiteSettings();
   const [shares, setShares] = useState<Share[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,6 +48,16 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
   const [expiresAt, setExpiresAt] = useState("");
   const [maxViews, setMaxViews] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
+
+  const publicOrigin = resolvePublicWebOrigin({
+    runtimeOrigin: siteConfig.publicWebOrigin,
+    runtimeSource: siteConfig.publicWebOriginSource,
+  });
+  const publicOriginLabel = getPublicWebOriginSourceLabel(publicOrigin.source);
+  const publicOriginOptions = {
+    runtimeOrigin: siteConfig.publicWebOrigin,
+    runtimeSource: siteConfig.publicWebOriginSource,
+  };
 
   const loadShares = useCallback(async () => {
     setLoading(true);
@@ -106,7 +122,11 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
           expiresAt: common.expiresAt || undefined,
           maxViews: parsedMax || undefined,
         });
-        toast.success("分享链接已创建");
+        if (publicOrigin.requiresAnonymousCheck) {
+          toast.warning("分享链接已创建，请先用无痕窗口验证访客能否打开");
+        } else {
+          toast.success("分享链接已创建");
+        }
       }
       resetForm();
       await loadShares();
@@ -117,13 +137,17 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
     }
   };
 
-  const shareUrl = (token: string) => buildPublicWebUrl(`/share/${token}`);
+  const shareUrl = (token: string) => buildPublicWebUrl(`/share/${token}`, publicOriginOptions);
   const copy = async (value: string, id: string) => {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(id);
       window.setTimeout(() => setCopied(null), 1600);
-      toast.success("分享链接已复制");
+      if (publicOrigin.requiresAnonymousCheck) {
+        toast.warning("链接已复制，请在无痕窗口、微信或未登录设备中验证");
+      } else {
+        toast.success("分享链接已复制");
+      }
     } catch {
       toast.error("复制失败，请手动复制");
     }
@@ -147,6 +171,10 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
     await mutate(() => api.deleteShare(share.id), "分享已删除");
   };
 
+  const riskMessage = publicOrigin.isLikelyProtectedGateway
+    ? "当前公开地址疑似 FN Connect 登录网关。创建者浏览器能打开，不代表微信、无痕窗口或未登录访客可以访问。"
+    : "当前分享地址沿用正在访问的域名。若该域名需要 VPN、内网或网关登录，外部访客将无法打开。";
+
   return (
     <AnimatePresence>
       <motion.div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 px-3 py-5 backdrop-blur-sm" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
@@ -155,6 +183,23 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
             <div><h2 className="font-semibold">分享笔记</h2><p className="mt-0.5 max-w-xl truncate text-xs text-tx-tertiary">{noteTitle}</p></div>
             <button onClick={onClose} className="rounded-lg p-2 hover:bg-app-hover" aria-label="关闭"><X size={17} /></button>
           </header>
+
+          <div className={cn(
+            "flex items-start gap-2.5 border-b px-5 py-3 text-xs",
+            publicOrigin.requiresAnonymousCheck
+              ? "border-amber-500/25 bg-amber-500/8 text-amber-700 dark:text-amber-300"
+              : "border-app-border bg-emerald-500/5 text-tx-secondary",
+          )}>
+            {publicOrigin.requiresAnonymousCheck
+              ? <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              : <Shield size={16} className="mt-0.5 shrink-0 text-emerald-600" />}
+            <div className="min-w-0 space-y-1">
+              <p>{publicOrigin.requiresAnonymousCheck ? riskMessage : "已使用独立的公开分享域名。"}</p>
+              <p className="break-all text-[11px] opacity-80">
+                地址来源：{publicOriginLabel} · {publicOrigin.origin || "相对地址"}
+              </p>
+            </div>
+          </div>
 
           <div className="grid min-h-0 flex-1 lg:grid-cols-[300px_1fr]">
             <section className="border-b border-app-border p-5 lg:border-b-0 lg:border-r">
