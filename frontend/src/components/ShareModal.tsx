@@ -36,7 +36,7 @@ function permissionLabel(value: string): string {
 }
 
 export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalProps) {
-  const { siteConfig } = useSiteSettings();
+  const { siteConfig, updatePublicWebOrigin } = useSiteSettings();
   const [shares, setShares] = useState<Share[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -47,6 +47,9 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
   const [showPassword, setShowPassword] = useState(false);
   const [expiresAt, setExpiresAt] = useState("");
   const [maxViews, setMaxViews] = useState("");
+  const [canManagePublicOrigin, setCanManagePublicOrigin] = useState(false);
+  const [originDraft, setOriginDraft] = useState(siteConfig.publicWebOrigin);
+  const [originSaving, setOriginSaving] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
 
   const publicOrigin = resolvePublicWebOrigin({
@@ -72,10 +75,33 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
 
   useEffect(() => { void loadShares(); }, [loadShares]);
   useEffect(() => {
+    let cancelled = false;
+    api.getMe()
+      .then((user) => { if (!cancelled) setCanManagePublicOrigin(user.role === "admin"); })
+      .catch(() => { if (!cancelled) setCanManagePublicOrigin(false); });
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => {
+    setOriginDraft(siteConfig.publicWebOrigin);
+  }, [siteConfig.publicWebOrigin]);
+  useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  const savePublicOrigin = async () => {
+    if (originSaving) return;
+    setOriginSaving(true);
+    try {
+      await updatePublicWebOrigin(originDraft);
+      toast.success(originDraft.trim() ? "公开分享域名已保存" : "已恢复容器环境变量或当前域名");
+    } catch (error: any) {
+      toast.error(error?.message || "公开分享域名保存失败");
+    } finally {
+      setOriginSaving(false);
+    }
+  };
 
   const resetForm = () => {
     setEditingId(null);
@@ -193,11 +219,32 @@ export default function ShareModal({ noteId, noteTitle, onClose }: ShareModalPro
             {publicOrigin.requiresAnonymousCheck
               ? <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               : <Shield size={16} className="mt-0.5 shrink-0 text-emerald-600" />}
-            <div className="min-w-0 space-y-1">
+            <div className="min-w-0 flex-1 space-y-1">
               <p>{publicOrigin.requiresAnonymousCheck ? riskMessage : "已使用独立的公开分享域名。"}</p>
               <p className="break-all text-[11px] opacity-80">
                 地址来源：{publicOriginLabel} · {publicOrigin.origin || "相对地址"}
               </p>
+              {canManagePublicOrigin ? (
+                <div className="flex flex-col gap-1.5 pt-1 sm:flex-row">
+                  <Input
+                    value={originDraft}
+                    onChange={(event) => setOriginDraft(event.target.value)}
+                    onKeyDown={(event) => { if (event.key === "Enter") void savePublicOrigin(); }}
+                    placeholder="https://note.example.com"
+                    className="h-8 min-w-0 flex-1 bg-app-surface text-xs text-tx-primary"
+                    aria-label="公开分享域名"
+                  />
+                  <Button size="sm" variant="outline" disabled={originSaving} onClick={savePublicOrigin} className="h-8 shrink-0">
+                    {originSaving && <Loader2 size={13} className="mr-1 animate-spin" />}
+                    保存公开域名
+                  </Button>
+                </div>
+              ) : publicOrigin.requiresAnonymousCheck ? (
+                <p className="text-[11px] opacity-80">请让管理员配置 PUBLIC_WEB_ORIGIN 或独立公开域名。</p>
+              ) : null}
+              {canManagePublicOrigin && (
+                <p className="text-[11px] opacity-70">留空后优先恢复容器 PUBLIC_WEB_ORIGIN；仍未配置时使用当前访问域名。</p>
+              )}
             </div>
           </div>
 
