@@ -5,7 +5,6 @@ import os from "node:os";
 import path from "node:path";
 import JSZip from "jszip";
 import { parseWeChatDataAnalysisPayload } from "../src/services/wechatFavoritesAdapters/wechatDataAnalysisV1";
-import { normalizeSafeZipPath } from "../src/services/wechatFavoritesPackageImport";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "nowen-wechat-favorites-test-"));
 process.env.DB_PATH = path.join(tmpDir, "test.db");
@@ -14,6 +13,7 @@ process.env.ELECTRON_USER_DATA = path.join(tmpDir, "user-data");
 let getDb: typeof import("../src/db/schema").getDb;
 let closeDb: typeof import("../src/db/schema").closeDb;
 let importPackage: typeof import("../src/services/wechatFavoritesPackageImport").importWeChatFavoritesPackageFromZipFile;
+let normalizeSafeZipPath: typeof import("../src/services/wechatFavoritesPackageImport").normalizeSafeZipPath;
 
 const USER_ID = "wechat-import-user";
 const MEDIA_MD5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -56,8 +56,11 @@ test.before(async () => {
   getDb = schema.getDb;
   closeDb = schema.closeDb;
   importPackage = service.importWeChatFavoritesPackageFromZipFile;
+  normalizeSafeZipPath = service.normalizeSafeZipPath;
   getDb().prepare("INSERT OR IGNORE INTO users (id, username, passwordHash) VALUES (?, ?, ?)")
     .run(USER_ID, USER_ID, "hash");
+  const bootstrap = await writeFixture("bootstrap.zip");
+  await importPackage(bootstrap, { userId: USER_ID, workspaceId: null, dryRun: true });
 });
 
 test.beforeEach(() => {
