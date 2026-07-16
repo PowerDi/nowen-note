@@ -151,7 +151,7 @@ export interface ImportedNoteIntegrityInput {
   expectedId: string;
   expectedContent: string;
   expectedContentText: string;
-  expectedContentFormat: string;
+  expectedContentFormat?: string;
   minimumVersion: number;
   actual: ImportedNoteSnapshot;
 }
