@@ -123,6 +123,7 @@ import {
 } from "@/lib/outlineScroll";
 
 import { useTranslation } from "react-i18next";
+import { getActiveListType, type ActiveListType } from "@/lib/activeListType";
 
 const lowlight = createLowlight(common);
 
@@ -913,24 +914,24 @@ function createKeyboardExtension(flushSaveRef: React.MutableRefObject<() => void
           }
         }
 
-        // 任务列表 / 普通列表：sink / lift
+        // 列表内的 Tab 只调整列表层级，不退化为块级视觉缩进。
         if (isInTaskList()) {
-          const ok = delta === 1
-            ? editor.chain().focus().sinkListItem("taskItem").run()
-            : editor.chain().focus().liftListItem("taskItem").run();
-          if (ok) return true;
-          // 若无法 sink/lift（例如已是最外层），退化为块级 indent
-        } else if (isInBulletOrOrdered()) {
-          const ok = delta === 1
+          if (delta === 1) {
+            editor.chain().focus().sinkListItem("taskItem").run();
+          } else {
+            editor.chain().focus().liftListItem("taskItem").run();
+          }
+          return true;
+        }
+        if (isInBulletOrOrdered()) {
+          const changed = delta === 1
             ? editor.chain().focus().sinkListItem("listItem").run()
             : editor.chain().focus().liftListItem("listItem").run();
-          if (ok) {
-            normalizeAdjacentLists(editor);
-            return true;
-          }
+          if (changed) normalizeAdjacentLists(editor);
+          return true;
         }
 
-        // 其余：调整块级 indent 属性
+        // 仅普通块级内容使用视觉缩进。
         return editor.chain().focus().changeIndent(delta).run();
       };
 
@@ -1537,6 +1538,14 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
   const isTitleComposingRef = useRef(false);
   const lastEmittedTitleRef = useRef(note.title);
   const [wordStats, setWordStats] = useState({ chars: 0, charsNoSpace: 0, words: 0 });
+  const [activeListType, setActiveListType] = useState<ActiveListType>(null);
+  const activeListTypeRef = useRef<ActiveListType>(null);
+  const syncActiveListType = useCallback((currentEditor: Editor | null) => {
+    const next = getActiveListType(currentEditor);
+    if (activeListTypeRef.current === next) return;
+    activeListTypeRef.current = next;
+    setActiveListType(next);
+  }, []);
   const [showAI, setShowAI] = useState(false);
   const [aiSelectedText, setAiSelectedText] = useState("");
   const [aiPosition, setAiPosition] = useState<{ top: number; left: number } | undefined>();
@@ -2629,8 +2638,12 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
         return true;
       },
     },
-    onTransaction: ({ transaction }) => {
+    onCreate: ({ editor }) => {
+      syncActiveListType(editor);
+    },
+    onTransaction: ({ editor, transaction }) => {
       mapAsyncInsertAnchors(asyncInsertAnchorsRef.current, transaction);
+      syncActiveListType(editor);
     },
     onUpdate: ({ editor }) => {
       // setContent 触发的 onUpdate 不应该保存（防止死循环）
@@ -4621,21 +4634,21 @@ export default forwardRef<NoteEditorHandle, TiptapEditorProps>(function TiptapEd
 
         <ToolbarButton
           onClick={() => toggleBulletListSmart(editor)}
-          isActive={editor.isActive("bulletList")}
+          isActive={activeListType === "bulletList"}
           title={t('tiptap.bulletList')}
         >
           <List size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => toggleOrderedListSmart(editor)}
-          isActive={editor.isActive("orderedList")}
+          isActive={activeListType === "orderedList"}
           title={t('tiptap.orderedList')}
         >
           <ListOrdered size={iconSize} />
         </ToolbarButton>
         <ToolbarButton
           onClick={() => editor.chain().focus().toggleTaskList().run()}
-          isActive={editor.isActive("taskList")}
+          isActive={activeListType === "taskList"}
           title={t('tiptap.taskList')}
         >
           <CheckSquare size={iconSize} />

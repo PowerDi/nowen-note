@@ -1468,11 +1468,26 @@ async function buildPrintableHtml(note: {
     .content table { border-collapse: collapse; margin: 12px 0; width: 100%; }
     .content th, .content td { border: 1px solid #d0d7de; padding: 6px 10px; text-align: left; }
     .content th { background: #f6f8fa; font-weight: 600; }
-    .content ul, .content ol { padding-left: 1.4em; margin: 8px 0; }
-    .content ul[data-type="taskList"] { list-style: none; padding-left: 0; }
+    .content ul, .content ol { padding-left: 1.6em; margin: 8px 0; }
+    .content ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .content ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .content ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .content ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .content ul > li:not([data-type="taskItem"]):not(.task-list-item) { position: relative; }
+    .content ul > li:not([data-type="taskItem"]):not(.task-list-item)::before { content: var(--nowen-ul-marker); position: absolute; left: -1.2em; top: var(--nowen-ul-marker-top); font-size: var(--nowen-ul-marker-size); line-height: 1; }
+    .content ul.contains-task-list > li.task-list-item::before,
+    .content ul[data-type="taskList"] > li[data-type="taskItem"]::before { content: none !important; }
+    .content ul[data-type="taskList"], .content ul.contains-task-list { list-style: none; padding-left: 0.5em; }
+    .content li[data-type="taskItem"], .content li.task-list-item { list-style: none; }
     .content ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; margin: 4px 0; }
     .content ul[data-type="taskList"] li > label { user-select: none; }
     .content ul[data-type="taskList"] li > div { flex: 1; }
+    .content input[type="checkbox"] { margin-right: 8px; }
     .content hr { border: 0; border-top: 1px solid #e1e4e8; margin: 20px 0; }
     .content mark { background: #fff3a3; padding: 0 2px; border-radius: 3px; }
     @media print {

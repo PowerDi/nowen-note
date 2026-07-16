@@ -272,11 +272,24 @@ function buildStyle(theme: "light" | "dark", fontFamily: string, lineHeight: str
     .nowen-note-image-export-body p { margin: 9px 0; white-space: normal; }
     .nowen-note-image-export-body a { color: ${dark ? "#79b8ff" : "#0969da"}; text-decoration: none; }
     .nowen-note-image-export-body strong { font-weight: 700; }
-    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.65em; }
+    .nowen-note-image-export-body ul, .nowen-note-image-export-body ol { margin: 10px 0; padding-left: 1.6em; }
+    .nowen-note-image-export-body ul { list-style: none !important; --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul { --nowen-ul-marker: "•"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul ul { --nowen-ul-marker: "◦"; --nowen-ul-marker-size: 1.1em; --nowen-ul-marker-top: 0; }
+    .nowen-note-image-export-body ul ul ul ul ul ul ul ul ul { --nowen-ul-marker: "▪"; --nowen-ul-marker-size: 1.2em; --nowen-ul-marker-top: -0.05em; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item) { position: relative; }
+    .nowen-note-image-export-body ul > li:not([data-type="taskItem"]):not(.task-list-item)::before { content: var(--nowen-ul-marker); position: absolute; left: -1.2em; top: var(--nowen-ul-marker-top); font-size: var(--nowen-ul-marker-size); line-height: 1; }
+    .nowen-note-image-export-body ul.contains-task-list > li.task-list-item::before,
+    .nowen-note-image-export-body ul[data-type="taskList"] > li[data-type="taskItem"]::before { content: none !important; }
     .nowen-note-image-export-body li { margin: 4px 0; }
     .nowen-note-image-export-body li > p { margin: 2px 0; }
-    .nowen-note-image-export-body ul[data-type="taskList"] { padding-left: 0; list-style: none; }
-    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
+    .nowen-note-image-export-body ul[data-type="taskList"], .nowen-note-image-export-body ul.contains-task-list { padding-left: 0.5em; list-style: none; }
+    .nowen-note-image-export-body li[data-type="taskItem"], .nowen-note-image-export-body li.task-list-item, .nowen-note-image-export-body ul[data-type="taskList"] > li { display: flex; gap: 9px; align-items: flex-start; list-style: none; }
     .nowen-note-image-export-body input[type="checkbox"] { width: 15px; height: 15px; margin: 5px 0 0; accent-color: #4f7cff; }
     .nowen-note-image-export-body blockquote { margin: 14px 0; padding: 10px 16px; color: ${muted}; background: ${soft}; border-left: 4px solid ${border}; border-radius: 0 8px 8px 0; }
     .nowen-note-image-export-body hr { margin: 24px 0; border: 0; border-top: 1px solid ${border}; }
