@@ -1,10 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildPublicWebUrl,
   isLikelyProtectedGatewayOrigin,
   normalizePublicWebOrigin,
   resolvePublicWebOrigin,
+  setRuntimePublicWebOrigin,
 } from "../publicWebOrigin";
+
+afterEach(() => {
+  setRuntimePublicWebOrigin("", "current");
+});
 
 describe("publicWebOrigin", () => {
   it("normalizes safe HTTP origins and rejects credential/query variants", () => {
@@ -47,6 +52,18 @@ describe("publicWebOrigin", () => {
       source: "environment",
       requiresAnonymousCheck: false,
     });
+  });
+
+  it("publishes the runtime origin to link builders without a component context", () => {
+    setRuntimePublicWebOrigin("https://public.example.com", "environment");
+    expect(buildPublicWebUrl("/notebook-share/invite", {
+      buildOrigin: "",
+      currentOrigin: "https://private.fnos.net",
+    })).toBe("https://public.example.com/notebook-share/invite");
+    expect(buildPublicWebUrl("/public/notebook", {
+      buildOrigin: "",
+      currentOrigin: "https://private.fnos.net",
+    })).toBe("https://public.example.com/public/notebook");
   });
 
   it("falls back to the build origin before the current browser origin", () => {
