@@ -160,6 +160,17 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 
 > 最近 5 个版本的更新内容，完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
+### v1.4.0 - 2026-07-17
+
+### 🐛 修复
+
+- **db**: migrate share comment source fields before indexing (ee86795)
+
+### 📝 文档
+
+- **db**: plan share comments migration fix (080b955)
+- **db**: document share comments migration fix (7cbaf4e)
+
 ### v1.3.9 - 2026-07-17
 
 ### 🐛 修复
@@ -612,38 +623,5 @@ If this project helps you, feel free to scan the QR code and buy the author a co
 - 完成版本冲突处理闭环并停止重复弹窗 (#274) (b10c2cb)
 - 简化全局同步状态，隐藏普通用户队列概念 (#275) (c222bfb)
 - 修复安卓主题切换抖动与图片旋转缩放 (#270) (7510060)
-
-### v1.3.5 - 2026-07-13
-
-### ✨ 新增
-
-- 用户偏好跟随账号同步 (#209) (1cc78c6)
-- **移动端**: 优化图片操作菜单（任务 2/3） (bd6b701)
-
-### 🐛 修复
-
-- **Android**: 修复笔记列表轻触无响应 (f0ad5ce)
-- **search**: rebuild stale FTS index on upgrade (#212) (1d1ab84)
-- **search**: require explainable matches and cover metadata (#212) (a0bb18a)
-- **search**: normalize literal query terms (#212) (8e32aeb)
-- **移动端**: 提供 Markdown 预览入口 (b1da1f0)
-- **Markdown**: 渲染行内与块级公式 (e70c612)
-- **移动端**: 消除图片菜单切换闪烁 (04b3629)
-- **移动端**: 兼容通用编辑器选区类型（任务 3/3） (ed0a91c)
-- **移动端**: 保持图片操作菜单可见（任务 1/3） (3749ece)
-
-### 📝 文档
-
-- **移动端**: 记录图片菜单实现计划 (c633e03)
-- **移动端**: 记录图片操作菜单设计 (c51c5fe)
-
-### 💄 样式
-
-- **移动端**: 缩小图片操作面板 (6f77dc6)
-
-### ✅ 测试
-
-- **search**: cover query normalization (#212) (b6168da)
-- **search**: cover reliable full-text retrieval (#212) (ee6ddde)
 
 <!-- CHANGELOG:END -->

@@ -12,6 +12,18 @@
 
 <!-- ADD_NEW_HERE -->
 
+## v1.4.0 - 2026-07-17
+
+### 🐛 修复
+
+- **db**: migrate share comment source fields before indexing (ee86795)
+
+### 📝 文档
+
+- **db**: plan share comments migration fix (080b955)
+- **db**: document share comments migration fix (7cbaf4e)
+
+
 ## v1.3.9 - 2026-07-17
 
 ### 🐛 修复
