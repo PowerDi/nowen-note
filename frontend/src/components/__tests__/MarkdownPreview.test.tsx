@@ -105,4 +105,12 @@ describe("MarkdownPreview task checkboxes", () => {
     expect(new URL(image!.src).searchParams.get("sig")).toBe("preview-signature");
     expect(markdown).toBe(`![附件图片](/api/attachments/${ATTACHMENT_ID})`);
   });
+
+  it("keeps protocol-relative remote image URLs unchanged", async () => {
+    await act(async () => {
+      root.render(<MarkdownPreview markdown="![远程图片](//cdn.example.com/image.png)" />);
+    });
+
+    expect(host.querySelector("img")?.getAttribute("src")).toBe("//cdn.example.com/image.png");
+  });
 });

@@ -158,7 +158,7 @@ function PreviewImage({ src, alt }: { src?: string; alt?: string }) {
   const { t } = useTranslation();
   const [failed, setFailed] = useState(false);
   if (!src) return null;
-  const resolvedSrc = resolveAttachmentUrl(src);
+  const resolvedSrc = src.startsWith("//") ? src : resolveAttachmentUrl(src);
   if (failed) {
     return <span className="inline-flex items-center gap-1 rounded-lg bg-app-hover px-3 py-2 text-xs text-tx-tertiary">⚠ {t("markdown.preview.imageLoadFailed")}</span>;
   }
