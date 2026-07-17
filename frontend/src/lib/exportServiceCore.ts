@@ -319,6 +319,18 @@ function normalizeAttachmentSrc(src: string): string {
 }
 
 /**
+ * 导出任务由脚本主动抓取附件，不是浏览器原生的 img 请求。
+ * 线上关闭匿名附件访问后，必须携带当前 Bearer 登录凭证；已有签名 URL 仍可照常使用。
+ */
+function attachmentFetchOptions(): RequestInit {
+  const token = typeof localStorage !== "undefined" ? localStorage.getItem("nowen-token") : null;
+  return {
+    credentials: "include",
+    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+  };
+}
+
+/**
  * 下载 html 里所有本站附件图片，替换 src 为 zip 内相对路径。
  *
  * 为什么用 ArrayBuffer + FileReader 转 base64：
@@ -382,7 +394,7 @@ async function fetchRemoteImages(
       const task = tasks[myIdx];
       try {
         const absUrl = resolveAttachmentUrl(task.originalSrc);
-        const res = await fetch(absUrl, { credentials: "include" });
+        const res = await fetch(absUrl, attachmentFetchOptions());
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const mime = res.headers.get("content-type") || "application/octet-stream";
         const buf = await res.arrayBuffer();
@@ -525,7 +537,7 @@ export async function inlineRemoteImages(
         let dataUri = cache.get(cacheKey);
         if (!dataUri) {
           const absUrl = resolveAttachmentUrl(task.originalSrc);
-          const res = await fetch(absUrl, { credentials: "include" });
+          const res = await fetch(absUrl, attachmentFetchOptions());
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const mime = (res.headers.get("content-type") || "application/octet-stream")
             .split(";")[0]
@@ -671,7 +683,7 @@ async function processMarkdownAttachments(
           return;
         }
 
-        const res = await fetch(absUrl, { credentials: "include" });
+        const res = await fetch(absUrl, attachmentFetchOptions());
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const mime = res.headers.get("content-type") || "application/octet-stream";
         const buf = await res.arrayBuffer();
@@ -768,7 +780,7 @@ async function fetchRemoteAttachments(
       const task = tasks[myIdx];
       try {
         const absUrl = resolveAttachmentUrl(task.originalHref);
-        const res = await fetch(absUrl, { credentials: "include" });
+        const res = await fetch(absUrl, attachmentFetchOptions());
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         // 大附件用 ArrayBuffer 收 + 分块 base64，避免 String.fromCharCode 爆栈
         const buf = await res.arrayBuffer();
