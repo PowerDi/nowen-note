@@ -108,7 +108,7 @@ after(() => {
   fs.rmSync(tempDir, { recursive: true, force: true });
 });
 
-test("preview rejects a mixed-source batch", () => {
+test("preview rejects a mixed-source batch", async () => {
   seedUser("u1");
   seedWorkspace("w1", "u1");
   seedNotebook("p", "u1", null);
@@ -116,7 +116,7 @@ test("preview rejects a mixed-source batch", () => {
   seedNote({ id: "personal-note", userId: "u1", workspaceId: null, notebookId: "p" });
   seedNote({ id: "team-note", userId: "u1", workspaceId: "w1", notebookId: "team" });
 
-  assert.throws(
+  await assert.rejects(
     () => previewNoteTransfer({
       actorUserId: "u1",
       sourceNoteIds: ["personal-note", "team-note"],
@@ -128,7 +128,7 @@ test("preview rejects a mixed-source batch", () => {
   );
 });
 
-test("copies a personal batch to a team with new ids, attachments, tags and internal links", () => {
+test("copies a personal batch to a team with new ids, attachments, tags and internal links", async () => {
   seedUser("u1");
   seedWorkspace("w1", "u1");
   seedNotebook("personal", "u1", null);
@@ -146,7 +146,7 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   db.prepare("INSERT INTO tags (id, userId, workspaceId, name, color) VALUES ('tag-1', 'u1', NULL, '迁移', '#123456')").run();
   db.prepare("INSERT INTO note_tags (noteId, tagId) VALUES (?, 'tag-1')").run(NOTE_ONE);
 
-  const preview = previewNoteTransfer({
+  const preview = await previewNoteTransfer({
     actorUserId: "u1",
     sourceNoteIds: [NOTE_ONE, NOTE_TWO],
     targetWorkspaceId: "w1",
@@ -156,8 +156,9 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   assert.equal(preview.canExecute, true);
   assert.equal(preview.noteCount, 2);
   assert.equal(preview.attachmentCount, 1);
+  assert.equal(preview.internalNoteLinkCount, 1);
 
-  const result = executeNoteTransfer({
+  const result = await executeNoteTransfer({
     actorUserId: "u1",
     sourceNoteIds: [NOTE_ONE, NOTE_TWO],
     targetWorkspaceId: "w1",
@@ -168,6 +169,7 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
 
   assert.equal(result.copiedNoteCount, 2);
   assert.equal(result.copiedAttachmentCount, 1);
+  assert.equal(result.internalNoteLinkCount, 1);
   const one = result.items.find((item) => item.sourceNoteId === NOTE_ONE)!;
   const two = result.items.find((item) => item.sourceNoteId === NOTE_TWO)!;
   assert.notEqual(one.targetNoteId, NOTE_ONE);
@@ -185,14 +187,14 @@ test("copies a personal batch to a team with new ids, attachments, tags and inte
   assert.equal((db.prepare("SELECT isTrashed FROM notes WHERE id = ?").get(NOTE_ONE) as any).isTrashed, 0);
 });
 
-test("moves a team note to personal only after the target copy verifies", () => {
+test("moves a team note to personal only after the target copy verifies", async () => {
   seedUser("u1");
   seedWorkspace("w1", "u1");
   seedNotebook("source", "u1", "w1");
   seedNotebook("personal", "u1", null);
   seedNote({ id: "team-note", userId: "u1", workspaceId: "w1", notebookId: "source", version: 7 });
 
-  const preview = previewNoteTransfer({
+  const preview = await previewNoteTransfer({
     actorUserId: "u1",
     sourceNoteIds: ["team-note"],
     targetWorkspaceId: null,
@@ -202,7 +204,7 @@ test("moves a team note to personal only after the target copy verifies", () => 
   assert.equal(preview.canExecute, true);
   assert.deepEqual(preview.sourceVersions, { "team-note": 7 });
 
-  const result = executeNoteTransfer({
+  const result = await executeNoteTransfer({
     actorUserId: "u1",
     sourceNoteIds: ["team-note"],
     targetWorkspaceId: null,
@@ -221,7 +223,7 @@ test("moves a team note to personal only after the target copy verifies", () => 
   assert.equal(target.isTrashed, 0);
 });
 
-test("blocks move when an attachment file is missing and leaves the source untouched", () => {
+test("blocks move when an attachment object is missing and leaves the source untouched", async () => {
   seedUser("u1");
   seedWorkspace("w1", "u1");
   seedNotebook("personal", "u1", null);
@@ -233,7 +235,7 @@ test("blocks move when an attachment file is missing and leaves the source untou
     ) VALUES ('missing-att', 'n1', 'u1', NULL, 'missing.txt', 'text/plain', 1, 'missing/file.txt', 'test')
   `).run();
 
-  const preview = previewNoteTransfer({
+  const preview = await previewNoteTransfer({
     actorUserId: "u1",
     sourceNoteIds: ["n1"],
     targetWorkspaceId: "w1",
@@ -242,7 +244,7 @@ test("blocks move when an attachment file is missing and leaves the source untou
   });
   assert.equal(preview.canExecute, false);
   assert.ok(preview.blockers.some((item) => item.code === "ATTACHMENT_FILE_MISSING"));
-  assert.throws(
+  await assert.rejects(
     () => executeNoteTransfer({
       actorUserId: "u1",
       sourceNoteIds: ["n1"],
