@@ -174,8 +174,7 @@ function loadNotes(db: Database.Database, ids: string[]): NoteRow[] {
     SELECT id, userId, workspaceId, notebookId, title, content, contentText,
            contentFormat, isPinned, isFavorite, isLocked, isArchived, isTrashed,
            version, sortOrder, createdAt, updatedAt
-    FROM notes
-    WHERE id IN (${placeholders(ids.length)})
+    FROM notes WHERE id IN (${placeholders(ids.length)})
   `).all(...ids) as NoteRow[];
   const byId = new Map(rows.map((row) => [row.id, row]));
   return ids.map((id) => byId.get(id)).filter((row): row is NoteRow => !!row);
@@ -204,13 +203,7 @@ function loadTags(db: Database.Database, noteIds: string[]): TagRow[] {
 }
 
 function attachmentAbsolutePath(row: AttachmentRow): string {
-  return path.isAbsolute(row.path)
-    ? row.path
-    : path.join(getAttachmentsDir(), row.path);
-}
-
-function roleCanWriteWorkspace(workspaceId: string, userId: string): boolean {
-  return hasRole(getUserWorkspaceRole(workspaceId, userId), "editor");
+  return path.isAbsolute(row.path) ? row.path : path.join(getAttachmentsDir(), row.path);
 }
 
 function addBlocker(
@@ -227,32 +220,22 @@ function validateDirection(sourceWorkspaceId: string | null, targetWorkspaceId: 
     throw new NoteTransferError(
       "SAME_WORKSPACE_TRANSFER_FORBIDDEN",
       "跨空间转移仅用于个人空间与团队空间之间；同一空间请使用普通移动功能",
-      400,
     );
   }
   if (sourceWorkspaceId !== null && targetWorkspaceId !== null) {
     throw new NoteTransferError(
       "TEAM_TO_TEAM_TRANSFER_UNSUPPORTED",
       "当前仅支持个人空间与团队空间之间复制或移动",
-      400,
     );
   }
 }
 
 function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnalysis {
   const ids = normalizeIds(input.sourceNoteIds);
-  if (ids.length === 0) {
-    throw new NoteTransferError("SOURCE_NOTES_REQUIRED", "请至少选择一篇笔记");
-  }
-  if (ids.length > 100) {
-    throw new NoteTransferError("TRANSFER_BATCH_TOO_LARGE", "单次最多转移 100 篇笔记");
-  }
-  if (!input.actorUserId) {
-    throw new NoteTransferError("UNAUTHENTICATED", "未登录", 401);
-  }
-  if (!input.targetNotebookId) {
-    throw new NoteTransferError("TARGET_NOTEBOOK_REQUIRED", "请选择目标笔记本");
-  }
+  if (ids.length === 0) throw new NoteTransferError("SOURCE_NOTES_REQUIRED", "请至少选择一篇笔记");
+  if (ids.length > 100) throw new NoteTransferError("TRANSFER_BATCH_TOO_LARGE", "单次最多转移 100 篇笔记");
+  if (!input.actorUserId) throw new NoteTransferError("UNAUTHENTICATED", "未登录", 401);
+  if (!input.targetNotebookId) throw new NoteTransferError("TARGET_NOTEBOOK_REQUIRED", "请选择目标笔记本");
   if (input.mode !== "copy" && input.mode !== "move") {
     throw new NoteTransferError("INVALID_TRANSFER_MODE", "mode 必须是 copy 或 move");
   }
@@ -260,16 +243,14 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
   const notes = loadNotes(db, ids);
   if (notes.length !== ids.length) {
     const found = new Set(notes.map((row) => row.id));
-    const missing = ids.filter((id) => !found.has(id));
-    throw new NoteTransferError("SOURCE_NOTE_NOT_FOUND", "部分源笔记不存在", 404, { missing });
+    throw new NoteTransferError("SOURCE_NOTE_NOT_FOUND", "部分源笔记不存在", 404, {
+      missing: ids.filter((id) => !found.has(id)),
+    });
   }
 
   const workspaceSet = new Set(notes.map((note) => note.workspaceId));
   if (workspaceSet.size !== 1) {
-    throw new NoteTransferError(
-      "MIXED_SOURCE_WORKSPACES",
-      "批量转移的笔记必须来自同一个空间",
-    );
+    throw new NoteTransferError("MIXED_SOURCE_WORKSPACES", "批量转移的笔记必须来自同一个空间");
   }
   const sourceWorkspaceId = notes[0].workspaceId;
   const targetWorkspaceId = input.targetWorkspaceId || null;
@@ -282,10 +263,7 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
     throw new NoteTransferError("TARGET_NOTEBOOK_NOT_FOUND", "目标笔记本不存在或已删除", 404);
   }
   if (targetNotebook.workspaceId !== targetWorkspaceId) {
-    throw new NoteTransferError(
-      "TARGET_NOTEBOOK_WORKSPACE_MISMATCH",
-      "目标笔记本不属于所选目标空间",
-    );
+    throw new NoteTransferError("TARGET_NOTEBOOK_WORKSPACE_MISMATCH", "目标笔记本不属于所选目标空间");
   }
 
   const blockers: NoteTransferPreview["blockers"] = [];
@@ -296,7 +274,7 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
       addBlocker(blockers, "TARGET_PERSONAL_FORBIDDEN", "只能转入自己的个人空间");
     }
   } else {
-    if (!roleCanWriteWorkspace(targetWorkspaceId, input.actorUserId)) {
+    if (!hasRole(getUserWorkspaceRole(targetWorkspaceId, input.actorUserId), "editor")) {
       addBlocker(blockers, "TARGET_WORKSPACE_FORBIDDEN", "目标团队空间需要编辑者或更高权限");
     }
     const targetPermission = resolveNotebookPermission(targetNotebook.id, input.actorUserId).permission;
@@ -360,11 +338,10 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
   }
 
   const tags = input.includeTags === false ? [] : loadTags(db, ids);
-  const noteIdMap = new Map(ids.map((id) => [id, crypto.randomUUID()]));
+  const noteIdMap = new Map(ids.map((id) => [id.toLowerCase(), crypto.randomUUID()]));
   let externalNoteLinkCount = 0;
   for (const note of notes) {
-    const rewritten = rewriteInternalNoteLinks(note.content || "", noteIdMap);
-    externalNoteLinkCount += rewritten.externalReferenceCount;
+    externalNoteLinkCount += rewriteInternalNoteLinks(note.content || "", noteIdMap).externalNoteLinkCount;
   }
   if (externalNoteLinkCount > 0) {
     warnings.push(`检测到 ${externalNoteLinkCount} 个指向本批次外笔记的链接，目标中将保留原链接`);
@@ -376,33 +353,6 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
     attachmentCounts.set(attachment.noteId, (attachmentCounts.get(attachment.noteId) || 0) + 1);
   }
 
-  const preview: NoteTransferPreview = {
-    canExecute: blockers.length === 0,
-    mode: input.mode,
-    sourceWorkspaceId,
-    targetWorkspaceId,
-    targetNotebookId: targetNotebook.id,
-    noteCount: notes.length,
-    attachmentCount: input.includeAttachments === false ? 0 : attachments.length,
-    attachmentBytes: input.includeAttachments === false
-      ? 0
-      : attachments.reduce((sum, row) => sum + Math.max(0, Number(row.size) || 0), 0),
-    missingAttachmentCount: missingAttachments.length,
-    tagCount: tags.length,
-    externalNoteLinkCount,
-    sourceVersions: Object.fromEntries(notes.map((note) => [note.id, note.version])),
-    blockers,
-    warnings,
-    omitted: OMITTED_FEATURES,
-    notes: notes.map((note) => ({
-      id: note.id,
-      title: note.title,
-      version: note.version,
-      isLocked: !!note.isLocked,
-      attachmentCount: attachmentCounts.get(note.id) || 0,
-    })),
-  };
-
   return {
     notes,
     targetNotebook,
@@ -410,14 +360,47 @@ function analyzeTransfer(input: NoteTransferRequest, db = getDb()): TransferAnal
     targetWorkspaceId,
     attachments,
     tags,
-    preview,
+    preview: {
+      canExecute: blockers.length === 0,
+      mode: input.mode,
+      sourceWorkspaceId,
+      targetWorkspaceId,
+      targetNotebookId: targetNotebook.id,
+      noteCount: notes.length,
+      attachmentCount: input.includeAttachments === false ? 0 : attachments.length,
+      attachmentBytes: input.includeAttachments === false
+        ? 0
+        : attachments.reduce((sum, row) => sum + Math.max(0, Number(row.size) || 0), 0),
+      missingAttachmentCount: missingAttachments.length,
+      tagCount: tags.length,
+      externalNoteLinkCount,
+      sourceVersions: Object.fromEntries(notes.map((note) => [note.id, note.version])),
+      blockers,
+      warnings,
+      omitted: OMITTED_FEATURES,
+      notes: notes.map((note) => ({
+        id: note.id,
+        title: note.title,
+        version: note.version,
+        isLocked: !!note.isLocked,
+        attachmentCount: attachmentCounts.get(note.id) || 0,
+      })),
+    },
   };
+}
+
+function blockerStatus(code: string): number {
+  if (code === "SOURCE_VERSION_CONFLICT" || code === "SOURCE_NOTE_LOCKED" || code === "ATTACHMENT_FILE_MISSING") {
+    return 409;
+  }
+  if (code.endsWith("FORBIDDEN") || code.endsWith("REQUIRED")) return 403;
+  return 400;
 }
 
 function assertExecutable(analysis: TransferAnalysis): void {
   if (analysis.preview.blockers.length === 0) return;
   const first = analysis.preview.blockers[0];
-  throw new NoteTransferError(first.code, first.message, 403, {
+  throw new NoteTransferError(first.code, first.message, blockerStatus(first.code), {
     blockers: analysis.preview.blockers,
   });
 }
@@ -431,8 +414,9 @@ function nextSortOrder(db: Database.Database, notebookId: string): number {
 
 function copyAttachmentFile(row: AttachmentRow, newId: string): { relativePath: string; absolutePath: string } {
   const sourcePath = attachmentAbsolutePath(row);
-  const extension = path.extname(row.path || row.filename || "");
-  const relativePath = path.join(getUploadMonthPath(), `${newId}${extension}`).replace(/\\/g, "/");
+  const rawExtension = path.extname(row.path || row.filename || "") || ".bin";
+  const extension = rawExtension.replace(/[^a-zA-Z0-9.]/g, "") || ".bin";
+  const relativePath = `${getUploadMonthPath()}/${newId}${extension}`;
   const absolutePath = path.join(getAttachmentsDir(), relativePath);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.copyFileSync(sourcePath, absolutePath, fs.constants.COPYFILE_EXCL);
@@ -450,6 +434,7 @@ function targetTagFor(
     : db.prepare("SELECT id FROM tags WHERE userId = ? AND workspaceId = ? AND name = ? COLLATE NOCASE").get(actorUserId, targetWorkspaceId, source.name);
   if (exact && typeof (exact as any).id === "string") return { id: (exact as any).id, created: false };
 
+  // 兼容旧库的 UNIQUE(userId, name)：若同名标签已存在于另一空间，只能复用该用户标签。
   const legacy = db.prepare("SELECT id FROM tags WHERE userId = ? AND name = ? COLLATE NOCASE").get(actorUserId, source.name) as { id: string } | undefined;
   if (legacy) return { id: legacy.id, created: false };
 
@@ -470,27 +455,24 @@ export function previewNoteTransfer(input: NoteTransferRequest): NoteTransferPre
 
 export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferResult {
   const db = getDb();
-  const initial = analyzeTransfer(input, db);
-  assertExecutable(initial);
-
+  assertExecutable(analyzeTransfer(input, db));
   const copiedFiles: string[] = [];
+
   try {
     const result = db.transaction(() => {
       const analysis = analyzeTransfer(input, db);
       assertExecutable(analysis);
 
       const noteIdMap = new Map<string, string>();
-      for (const note of analysis.notes) noteIdMap.set(note.id, crypto.randomUUID());
-
+      for (const note of analysis.notes) noteIdMap.set(note.id.toLowerCase(), crypto.randomUUID());
       const attachmentIdMap = new Map<string, string>();
-      const copiedAttachmentByNote = new Map<string, AttachmentRow[]>();
       let copiedAttachmentCount = 0;
       let skippedAttachmentCount = 0;
       let copiedTagCount = 0;
       let sortOrder = nextSortOrder(db, analysis.targetNotebook.id);
 
       for (const note of analysis.notes) {
-        const newId = noteIdMap.get(note.id)!;
+        const newId = noteIdMap.get(note.id.toLowerCase())!;
         db.prepare(`
           INSERT INTO notes (
             id, userId, workspaceId, notebookId, title, content, contentText, contentFormat,
@@ -529,8 +511,8 @@ export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferRes
           const newAttachmentId = crypto.randomUUID();
           const copied = copyAttachmentFile(attachment, newAttachmentId);
           copiedFiles.push(copied.absolutePath);
-          attachmentIdMap.set(attachment.id, newAttachmentId);
-          const targetNoteId = noteIdMap.get(attachment.noteId)!;
+          attachmentIdMap.set(attachment.id.toLowerCase(), newAttachmentId);
+          const targetNoteId = noteIdMap.get(attachment.noteId.toLowerCase())!;
           db.prepare(`
             INSERT INTO attachments (
               id, noteId, userId, workspaceId, filename, mimeType, size, path,
@@ -549,14 +531,11 @@ export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferRes
             "note-transfer",
           );
           copiedAttachmentCount++;
-          const bucket = copiedAttachmentByNote.get(attachment.noteId) || [];
-          bucket.push({ ...attachment, id: newAttachmentId, noteId: targetNoteId, path: copied.relativePath });
-          copiedAttachmentByNote.set(attachment.noteId, bucket);
         }
       }
 
       for (const note of analysis.notes) {
-        const newId = noteIdMap.get(note.id)!;
+        const newId = noteIdMap.get(note.id.toLowerCase())!;
         const linked = rewriteInternalNoteLinks(note.content || "", noteIdMap);
         const rewrittenContent = rewriteAttachmentUrls(linked.content, attachmentIdMap);
         db.prepare("UPDATE notes SET content = ? WHERE id = ?").run(rewrittenContent, newId);
@@ -575,16 +554,16 @@ export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferRes
         syncNoteLinksForNote(newId, rewrittenContent);
       }
 
-      const copiedRows = loadNotes(db, Array.from(noteIdMap.values()));
-      if (copiedRows.length !== analysis.notes.length) {
+      const targetNoteIds = Array.from(noteIdMap.values());
+      if (loadNotes(db, targetNoteIds).length !== analysis.notes.length) {
         throw new NoteTransferError("TARGET_VERIFY_FAILED", "目标笔记校验失败，操作已回滚", 500);
       }
       if (input.includeAttachments !== false) {
         const expected = analysis.attachments.length - skippedAttachmentCount;
         const actual = (db.prepare(`
           SELECT COUNT(*) AS count FROM attachments
-          WHERE noteId IN (${placeholders(noteIdMap.size)})
-        `).get(...Array.from(noteIdMap.values())) as { count: number }).count;
+          WHERE noteId IN (${placeholders(targetNoteIds.length)})
+        `).get(...targetNoteIds) as { count: number }).count;
         if (actual !== expected) {
           throw new NoteTransferError("TARGET_ATTACHMENT_VERIFY_FAILED", "目标附件校验失败，操作已回滚", 500);
         }
@@ -607,17 +586,20 @@ export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferRes
           if (current.isLocked) {
             throw new NoteTransferError("SOURCE_NOTE_LOCKED", "锁定笔记不能移动", 409, { noteId: note.id });
           }
-          db.prepare(`
+          const update = db.prepare(`
             UPDATE notes
             SET isTrashed = 1, trashedAt = datetime('now'), updatedAt = datetime('now'), version = version + 1
             WHERE id = ? AND version = ?
           `).run(note.id, expected);
+          if (update.changes !== 1) {
+            throw new NoteTransferError("SOURCE_VERSION_CONFLICT", "源笔记已更新，请重新预检", 409, { noteId: note.id });
+          }
         }
       }
 
       const items = analysis.notes.map((note) => ({
         sourceNoteId: note.id,
-        targetNoteId: noteIdMap.get(note.id)!,
+        targetNoteId: noteIdMap.get(note.id.toLowerCase())!,
         title: note.title,
       }));
 
@@ -684,7 +666,6 @@ export function executeNoteTransfer(input: NoteTransferRequest): NoteTransferRes
         trashed: true,
       });
     }
-
     return result;
   } catch (error) {
     for (const file of copiedFiles.reverse()) {
