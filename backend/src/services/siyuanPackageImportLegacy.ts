@@ -1,4 +1,5 @@
 import { getDb } from "../db/schema";
+import { syncReferences as syncAttachmentReferences } from "../lib/attachmentRefs";
 import { enhanceSiyuanImportedTiptap } from "../lib/siyuanIssue284Tiptap";
 import {
     importSiyuanPackageFromZipFile as importSiyuanPackageCore,
@@ -25,7 +26,6 @@ interface ImportedRichTextRow {
     id: string;
     content: string;
     contentText: string;
-    contentFormat: string;
 }
 
 const NOTE_BATCH_SIZE = 400;
@@ -65,7 +65,6 @@ function readImportedTagLinks(noteIds: string[], withWorkspaceId: boolean): Impo
     if (noteIds.length === 0) return [];
     const db = getDb();
     const rows: ImportedTagLinkRow[] = [];
-
     for (const batch of chunks(noteIds, NOTE_BATCH_SIZE)) {
         const placeholders = batch.map(() => "?").join(", ");
         const workspaceSelection = withWorkspaceId
@@ -129,7 +128,7 @@ function enhanceImportedRichText(noteIds: string[]): string[] {
     for (const batch of chunks(noteIds, NOTE_BATCH_SIZE)) {
         const placeholders = batch.map(() => "?").join(", ");
         rows.push(...(db.prepare(`
-            SELECT id, content, COALESCE(contentText, '') AS contentText, contentFormat
+            SELECT id, content, COALESCE(contentText, '') AS contentText
             FROM notes
             WHERE id IN (${placeholders}) AND contentFormat = 'tiptap-json'
         `).all(...batch) as ImportedRichTextRow[]));
@@ -149,6 +148,7 @@ function enhanceImportedRichText(noteIds: string[]): string[] {
         for (const row of rows) {
             const enhanced = enhanceSiyuanImportedTiptap(row.content, row.contentText);
             update.run(enhanced.content, enhanced.contentText, row.id);
+            syncAttachmentReferences(db, row.id, enhanced.content);
             totals.callouts += enhanced.stats.callouts;
             totals.embedLinks += enhanced.stats.embedLinks;
             totals.audioLinks += enhanced.stats.audioLinks;
@@ -159,21 +159,11 @@ function enhanceImportedRichText(noteIds: string[]): string[] {
     })();
 
     const warnings: string[] = [];
-    if (totals.callouts > 0) {
-        warnings.push(`思源富文本：${totals.callouts} 个 Callout 已映射为带类型标题的安全引用块。`);
-    }
-    if (totals.embedLinks > 0) {
-        warnings.push(`思源富文本：${totals.embedLinks} 个无法安全内嵌的 iframe 已保留为可识别链接卡片。`);
-    }
-    if (totals.audioLinks > 0) {
-        warnings.push(`思源富文本：${totals.audioLinks} 个音频已保留为明确的附件链接。`);
-    }
-    if (totals.widgetLinks > 0) {
-        warnings.push(`思源富文本：${totals.widgetLinks} 个挂件已保留为可识别链接卡片。`);
-    }
-    if (totals.removedIal > 0) {
-        warnings.push(`思源富文本：已隐藏 ${totals.removedIal} 条仅用于源格式的 IAL 属性行。`);
-    }
+    if (totals.callouts > 0) warnings.push(`思源富文本：${totals.callouts} 个 Callout 已映射为带类型标题的安全引用块。`);
+    if (totals.embedLinks > 0) warnings.push(`思源富文本：${totals.embedLinks} 个无法安全内嵌的 iframe 已保留为可识别链接卡片。`);
+    if (totals.audioLinks > 0) warnings.push(`思源富文本：${totals.audioLinks} 个音频已保留为明确的附件链接。`);
+    if (totals.widgetLinks > 0) warnings.push(`思源富文本：${totals.widgetLinks} 个挂件已保留为可识别链接卡片。`);
+    if (totals.removedIal > 0) warnings.push(`思源富文本：已隐藏 ${totals.removedIal} 条仅用于源格式的 IAL 属性行。`);
     if (totals.repairedInvalidDocument > 0) {
         warnings.push(`思源富文本：${totals.repairedInvalidDocument} 篇异常文档已降级为可编辑纯文本，避免空白或编辑器崩溃。`);
     }
@@ -193,7 +183,13 @@ export async function importSiyuanPackageFromZipFile(
     const result = await importSiyuanPackageCore(zipFilePath, params);
     const noteIds = result.notes.map((note) => note.id);
     const cleanupWarnings = cleanImportedTagLinks(noteIds, preExistingTagIds);
-    const richTextWarnings = enhanceImportedRichText(noteIds);
+    let richTextWarnings: string[] = [];
+    try {
+        richTextWarnings = enhanceImportedRichText(noteIds);
+    } catch (error) {
+        console.error("[siyuan-import] rich-text post-processing failed", error);
+        richTextWarnings = ["思源富文本后处理失败，已保留基础转换结果；请查看服务端日志并重新导入。"];
+    }
     return {
         ...result,
         warnings: uniqueSorted([...result.warnings, ...cleanupWarnings, ...richTextWarnings]),
