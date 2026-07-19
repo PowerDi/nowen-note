@@ -30,6 +30,7 @@ import NoteTransferCenter from "./components/NoteTransferCenter";
 import "./index.css";
 import "./code-block-wrap.css";
 import "./overlay-layers.css";
+import "./space-actions.css";
 import { initCodeBlockTheme } from "./lib/codeBlockTheme";
 import { installAndroidNativeHttpBridge } from "./lib/androidNativeHttpBridge";
 import { installMobileStartupBridge } from "./lib/mobileStartupBridge";
