@@ -35,14 +35,14 @@ afterEach(() => {
 
 describe("EmbedPasswordBridge", () => {
   it("recognizes only controlled same-origin routes for script-enabled DOM access", () => {
-    expect(isControlledSameOriginEmbed(new URL("http://localhost/embed/unlock"), "http://localhost")).toBe(true);
-    expect(isControlledSameOriginEmbed(new URL("http://localhost/note/123"), "http://localhost")).toBe(false);
-    expect(isControlledSameOriginEmbed(new URL("https://example.com/embed"), "http://localhost")).toBe(false);
+    expect(isControlledSameOriginEmbed(new URL("/embed/unlock", window.location.href), window.location.origin)).toBe(true);
+    expect(isControlledSameOriginEmbed(new URL("/note/123", window.location.href), window.location.origin)).toBe(false);
+    expect(isControlledSameOriginEmbed(new URL("https://example.com/embed"), window.location.origin)).toBe(false);
   });
 
   it("fills an accessible same-origin password field and exposes a manual fallback", async () => {
     await mountBridge();
-    const iframe = appendPreviewIframe("http://localhost/embed/unlock?password=secret-284");
+    const iframe = appendPreviewIframe(new URL("/embed/unlock?password=secret-284", window.location.href).toString());
     await new Promise((resolve) => setTimeout(resolve, 20));
 
     const input = iframe.contentDocument?.createElement("input");
